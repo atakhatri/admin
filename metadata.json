@@ -1,0 +1,10 @@
+{
+  "name": "Aurora Command Hub",
+  "description": "Personal admin and portfolio control center with owner-only Google Sign-In, Cloud Firestore CMS, hosted Portfolio JSON API, and live location weather.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

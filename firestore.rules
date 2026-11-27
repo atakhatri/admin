@@ -1,0 +1,398 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // GLOBAL HARDENED PRIMITIVES
+    // ═══════════════════════════════════════════════════════════════════
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedOwner() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email == 'atakhatri905@gmail.com';
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string
+        && id.size() >= 1
+        && id.size() <= 128
+        && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOptionalHttpUrl(val, maxLen) {
+      return val is string
+        && val.size() <= maxLen
+        && (val == '' || val.matches('^https?://[^\\s]+$'));
+    }
+
+    function isRequiredHttpUrl(val, maxLen) {
+      return val is string
+        && val.size() >= 8
+        && val.size() <= maxLen
+        && val.matches('^https?://[^\\s]+$');
+    }
+
+    function isValidStringList(listVal, maxItems, maxItemLen) {
+      return listVal is list
+        && listVal.size() <= maxItems
+        && (
+          listVal.size() == 0
+          || (listVal[0] is string && listVal[0].size() >= 1 && listVal[0].size() <= maxItemLen)
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // VALIDATION BLUEPRINTS (ANTI-UPDATE-GAP)
+    // ═══════════════════════════════════════════════════════════════════
+    function isValidPublicProject(data) {
+      return data.keys().hasAll([
+          'ownerId', 'slug', 'title', 'description', 'image', 'tags',
+          'liveUrl', 'githubUrl', 'type', 'status', 'published',
+          'featured', 'displayOrder', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'slug', 'title', 'description', 'image', 'tags',
+          'liveUrl', 'githubUrl', 'type', 'status', 'published',
+          'featured', 'displayOrder', 'createdAt', 'updatedAt'
+        ])
+        && data.ownerId is string
+        && data.ownerId.size() >= 1
+        && data.ownerId.size() <= 128
+        && data.ownerId == request.auth.uid
+        && data.slug is string
+        && data.slug.size() >= 2
+        && data.slug.size() <= 80
+        && data.slug.matches('^[a-z0-9]+(?:-[a-z0-9]+)*$')
+        && data.title is string
+        && data.title.size() >= 2
+        && data.title.size() <= 100
+        && data.description is string
+        && data.description.size() <= 2000
+        && isOptionalHttpUrl(data.image, 1000)
+        && isValidStringList(data.tags, 12, 40)
+        && isOptionalHttpUrl(data.liveUrl, 500)
+        && isOptionalHttpUrl(data.githubUrl, 500)
+        && data.type is string
+        && data.type in ['Website', 'Mobile App']
+        && data.status is string
+        && data.status in ['Complete', 'Demo']
+        && data.published is bool
+        && data.featured is bool
+        && data.displayOrder is int
+        && data.displayOrder >= 0
+        && data.displayOrder <= 10000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAdminProject(data, projectId) {
+      return data.keys().hasAll([
+          'ownerId', 'projectId', 'authDashboardUrl', 'dbDashboardUrl',
+          'hostingDashboardUrl', 'monitoringUrl', 'environmentNotes',
+          'providerTags', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'projectId', 'authDashboardUrl', 'dbDashboardUrl',
+          'hostingDashboardUrl', 'monitoringUrl', 'environmentNotes',
+          'providerTags', 'createdAt', 'updatedAt'
+        ])
+        && data.ownerId is string
+        && data.ownerId.size() >= 1
+        && data.ownerId.size() <= 128
+        && data.ownerId == request.auth.uid
+        && data.projectId is string
+        && data.projectId == projectId
+        && isOptionalHttpUrl(data.authDashboardUrl, 500)
+        && isOptionalHttpUrl(data.dbDashboardUrl, 500)
+        && isOptionalHttpUrl(data.hostingDashboardUrl, 500)
+        && isOptionalHttpUrl(data.monitoringUrl, 500)
+        && data.environmentNotes is string
+        && data.environmentNotes.size() <= 2000
+        && isValidStringList(data.providerTags, 10, 40)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGalleryPhoto(data, photoId) {
+      return data.keys().hasAll([
+          'ownerId', 'section', 'slot', 'title', 'imageUrl', 'alt',
+          'category', 'displayOrder', 'published', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'section', 'slot', 'title', 'imageUrl', 'alt',
+          'category', 'displayOrder', 'published', 'createdAt', 'updatedAt'
+        ])
+        && data.ownerId is string
+        && data.ownerId.size() >= 1
+        && data.ownerId.size() <= 128
+        && data.ownerId == request.auth.uid
+        && data.section is string
+        && data.section in ['grid', 'gallery']
+        && data.slot is int
+        && (
+          (data.section == 'grid'
+            && data.slot >= 1
+            && data.slot <= 5
+            && photoId == ('grid-slot-' + string(data.slot)))
+          || (data.section == 'gallery' && data.slot == 0)
+        )
+        && data.title is string
+        && data.title.size() <= 120
+        && isRequiredHttpUrl(data.imageUrl, 1000)
+        && data.alt is string
+        && data.alt.size() <= 200
+        && data.category is string
+        && data.category.size() <= 50
+        && data.displayOrder is int
+        && data.displayOrder >= 0
+        && data.displayOrder <= 10000
+        && data.published is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPublicBlog(data) {
+      return data.keys().hasAll([
+          'ownerId', 'slug', 'title', 'excerpt', 'content', 'coverImage',
+          'author', 'category', 'tags', 'publishedDate', 'readTime',
+          'published', 'featured', 'displayOrder', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'slug', 'title', 'excerpt', 'content', 'coverImage',
+          'author', 'category', 'tags', 'publishedDate', 'readTime',
+          'published', 'featured', 'displayOrder', 'createdAt', 'updatedAt'
+        ])
+        && data.ownerId is string
+        && data.ownerId.size() >= 1
+        && data.ownerId.size() <= 128
+        && data.ownerId == request.auth.uid
+        && data.slug is string
+        && data.slug.size() >= 2
+        && data.slug.size() <= 100
+        && data.slug.matches('^[a-z0-9]+(?:-[a-z0-9]+)*$')
+        && data.title is string
+        && data.title.size() >= 2
+        && data.title.size() <= 140
+        && data.excerpt is string
+        && data.excerpt.size() <= 400
+        && data.content is string
+        && data.content.size() <= 50000
+        && isOptionalHttpUrl(data.coverImage, 1000)
+        && data.author is string
+        && data.author.size() >= 1
+        && data.author.size() <= 80
+        && data.category is string
+        && data.category.size() <= 50
+        && isValidStringList(data.tags, 12, 40)
+        && data.publishedDate is string
+        && data.publishedDate.size() <= 30
+        && (data.publishedDate == '' || data.publishedDate.matches('^\\d{4}-\\d{2}-\\d{2}$'))
+        && data.readTime is string
+        && data.readTime.size() <= 40
+        && data.published is bool
+        && data.featured is bool
+        && data.displayOrder is int
+        && data.displayOrder >= 0
+        && data.displayOrder <= 10000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COLLECTION: public_projects (Published public subset + Owner CMS)
+    // ═══════════════════════════════════════════════════════════════════
+    match /public_projects/{projectId} {
+      allow get: if isValidId(projectId) && (
+        ('published' in existing() && existing().published == true)
+        || ('status' in existing() && existing().status == 'published')
+        || (isVerifiedOwner() && existing().ownerId == request.auth.uid)
+      );
+
+      allow list: if (
+        existing().published == true
+        || existing().status == 'published'
+        || (isVerifiedOwner() && existing().ownerId == request.auth.uid)
+      );
+
+      allow create: if isVerifiedOwner()
+        && isValidId(projectId)
+        && isValidPublicProject(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedOwner()
+        && isValidId(projectId)
+        && isValidPublicProject(incoming())
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: Publish / Draft visibility toggle
+          incoming().diff(existing()).affectedKeys().hasOnly(['published', 'updatedAt'])
+          // Action: Portfolio completion status toggle (Complete / Demo)
+          || incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          // Action: Reorder or toggle featured
+          || incoming().diff(existing()).affectedKeys().hasOnly(['displayOrder', 'featured', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['displayOrder', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['featured', 'updatedAt'])
+          // Action: Full owner content edit (includes removing legacy Phase 1 keys on migration)
+          || incoming().diff(existing()).affectedKeys().hasOnly([
+            'slug', 'title', 'description', 'image', 'tags',
+            'liveUrl', 'githubUrl', 'type', 'status', 'published',
+            'featured', 'displayOrder', 'updatedAt',
+            'tagline', 'category', 'techStack', 'repoUrl', 'coverImageUrl'
+          ])
+        );
+
+      allow delete: if isVerifiedOwner()
+        && isValidId(projectId)
+        && existing().ownerId == request.auth.uid;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COLLECTION: admin_projects (Strictly Owner-Only Private Consoles)
+    // ═══════════════════════════════════════════════════════════════════
+    match /admin_projects/{projectId} {
+      allow get: if isVerifiedOwner()
+        && isValidId(projectId)
+        && existing().ownerId == request.auth.uid;
+
+      allow list: if isVerifiedOwner()
+        && existing().ownerId == request.auth.uid;
+
+      allow create: if isVerifiedOwner()
+        && isValidId(projectId)
+        && isValidAdminProject(incoming(), projectId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && existsAfter(/databases/$(database)/documents/public_projects/$(projectId));
+
+      allow update: if isVerifiedOwner()
+        && isValidId(projectId)
+        && isValidAdminProject(incoming(), projectId)
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().projectId == existing().projectId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'authDashboardUrl', 'dbDashboardUrl', 'hostingDashboardUrl',
+          'monitoringUrl', 'environmentNotes', 'providerTags', 'updatedAt'
+        ]);
+
+      allow delete: if isVerifiedOwner()
+        && isValidId(projectId)
+        && existing().ownerId == request.auth.uid;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COLLECTION: public_gallery (5 Grid Slots + Unlimited Gallery Images)
+    // ═══════════════════════════════════════════════════════════════════
+    match /public_gallery/{photoId} {
+      allow get: if isValidId(photoId) && (
+        existing().published == true
+        || (isVerifiedOwner() && existing().ownerId == request.auth.uid)
+      );
+
+      allow list: if (
+        existing().published == true
+        || (isVerifiedOwner() && existing().ownerId == request.auth.uid)
+      );
+
+      allow create: if isVerifiedOwner()
+        && isValidId(photoId)
+        && isValidGalleryPhoto(incoming(), photoId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedOwner()
+        && isValidId(photoId)
+        && isValidGalleryPhoto(incoming(), photoId)
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().section == existing().section
+        && incoming().slot == existing().slot
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: Publish / Draft visibility toggle
+          incoming().diff(existing()).affectedKeys().hasOnly(['published', 'updatedAt'])
+          // Action: Reorder gallery image
+          || incoming().diff(existing()).affectedKeys().hasOnly(['displayOrder', 'updatedAt'])
+          // Action: Full owner gallery photo edit
+          || incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'imageUrl', 'alt', 'category', 'displayOrder', 'published', 'updatedAt'
+          ])
+        );
+
+      allow delete: if isVerifiedOwner()
+        && isValidId(photoId)
+        && existing().ownerId == request.auth.uid;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COLLECTION: public_blogs (Portfolio Blog Posts CMS + Public API)
+    // ═══════════════════════════════════════════════════════════════════
+    match /public_blogs/{blogId} {
+      allow get: if isValidId(blogId) && (
+        existing().published == true
+        || (isVerifiedOwner() && existing().ownerId == request.auth.uid)
+      );
+
+      allow list: if (
+        existing().published == true
+        || (isVerifiedOwner() && existing().ownerId == request.auth.uid)
+      );
+
+      allow create: if isVerifiedOwner()
+        && isValidId(blogId)
+        && isValidPublicBlog(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedOwner()
+        && isValidId(blogId)
+        && isValidPublicBlog(incoming())
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: Publish / Draft visibility toggle
+          incoming().diff(existing()).affectedKeys().hasOnly(['published', 'updatedAt'])
+          // Action: Toggle featured status
+          || incoming().diff(existing()).affectedKeys().hasOnly(['featured', 'updatedAt'])
+          // Action: Reorder blog post
+          || incoming().diff(existing()).affectedKeys().hasOnly(['displayOrder', 'updatedAt'])
+          // Action: Full owner article edit
+          || incoming().diff(existing()).affectedKeys().hasOnly([
+            'slug', 'title', 'excerpt', 'content', 'coverImage', 'author',
+            'category', 'tags', 'publishedDate', 'readTime', 'published',
+            'featured', 'displayOrder', 'updatedAt'
+          ])
+        );
+
+      allow delete: if isVerifiedOwner()
+        && isValidId(blogId)
+        && existing().ownerId == request.auth.uid;
+    }
+  }
+}

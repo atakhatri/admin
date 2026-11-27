@@ -1,0 +1,404 @@
+{
+  "entities": {
+    "PublicProject": {
+      "title": "PublicProject",
+      "description": "Publicly publishable portfolio project metadata matching the external portfolio schema, served by GET /api/portfolio/projects when published is true.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the owner who created this project."
+        },
+        "slug": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "URL-safe unique identifier for portfolio API lookup."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100,
+          "description": "Display title of the project."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 2000,
+          "description": "Project description displayed on portfolio cards and detail views."
+        },
+        "image": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1000,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Optional HTTPS cover image URL for the project."
+        },
+        "tags": {
+          "type": "array",
+          "description": "Bounded list of up to 12 technology or topic tags."
+        },
+        "liveUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Optional live production URL."
+        },
+        "githubUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Optional GitHub repository URL."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["Website", "Mobile App"],
+          "description": "Project platform type (Website or Mobile App)."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Complete", "Demo"],
+          "description": "Portfolio completion status (Complete or Demo)."
+        },
+        "published": {
+          "type": "boolean",
+          "description": "Whether this project is published to the public Portfolio JSON API."
+        },
+        "featured": {
+          "type": "boolean",
+          "description": "Whether this project is highlighted on the portfolio."
+        },
+        "displayOrder": {
+          "type": "integer",
+          "description": "Sort order index for portfolio rendering."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": [
+        "ownerId",
+        "slug",
+        "title",
+        "description",
+        "image",
+        "tags",
+        "liveUrl",
+        "githubUrl",
+        "type",
+        "status",
+        "published",
+        "featured",
+        "displayOrder",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminProjectMeta": {
+      "title": "AdminProjectMeta",
+      "description": "Private owner-only operational links (Auth, DB, Hosting, Monitoring dashboards) and internal notes, isolated from public portfolio reads.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the owner."
+        },
+        "projectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Matching document ID in public_projects."
+        },
+        "authDashboardUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Direct link to the project's Authentication console."
+        },
+        "dbDashboardUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Direct link to the project's Database console."
+        },
+        "hostingDashboardUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Direct link to the project's Hosting / Deployment dashboard."
+        },
+        "monitoringUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Direct link to logs, analytics, or monitoring console."
+        },
+        "environmentNotes": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 2000,
+          "description": "Private operational notes for the owner."
+        },
+        "providerTags": {
+          "type": "array",
+          "description": "Bounded list of up to 10 infrastructure provider tags."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": [
+        "ownerId",
+        "projectId",
+        "authDashboardUrl",
+        "dbDashboardUrl",
+        "hostingDashboardUrl",
+        "monitoringUrl",
+        "environmentNotes",
+        "providerTags",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PublicGalleryPhoto": {
+      "title": "PublicGalleryPhoto",
+      "description": "Portfolio photography item belonging either to Section A (5-slot featured grid) or Section B (unlimited gallery images), served by GET /api/portfolio/gallery when published is true.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the owner."
+        },
+        "section": {
+          "type": "string",
+          "enum": ["grid", "gallery"],
+          "description": "Target portfolio section: grid (5 fixed slots) or gallery (unlimited images)."
+        },
+        "slot": {
+          "type": "integer",
+          "description": "Fixed slot number 1..5 for grid section, or 0 for gallery section."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 120,
+          "description": "Optional title or short caption for the photograph."
+        },
+        "imageUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "pattern": "^https?://[^\\s]+$",
+          "description": "HTTPS URL of the hosted photograph."
+        },
+        "alt": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 200,
+          "description": "Accessible alt text description."
+        },
+        "category": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 50,
+          "description": "Optional photography category or collection label."
+        },
+        "displayOrder": {
+          "type": "integer",
+          "description": "Sort order index for gallery rendering."
+        },
+        "published": {
+          "type": "boolean",
+          "description": "Whether this photo is returned by the public Portfolio Gallery JSON API."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": [
+        "ownerId",
+        "section",
+        "slot",
+        "title",
+        "imageUrl",
+        "alt",
+        "category",
+        "displayOrder",
+        "published",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PublicBlog": {
+      "title": "PublicBlog",
+      "description": "Portfolio blog article managed in Aurora Command Hub and served publicly by GET /api/portfolio/blogs when published is true.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the owner who authored this blog post."
+        },
+        "slug": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "URL-safe unique identifier for portfolio blog routing and API lookup."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 140,
+          "description": "Headline of the blog article."
+        },
+        "excerpt": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 400,
+          "description": "Short summary shown on portfolio blog cards and previews."
+        },
+        "content": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 50000,
+          "description": "Full Markdown body content of the blog post."
+        },
+        "coverImage": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1000,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Optional HTTPS cover image URL."
+        },
+        "author": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Author display name."
+        },
+        "category": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 50,
+          "description": "Optional blog category such as Engineering, Design, or Notes."
+        },
+        "tags": {
+          "type": "array",
+          "description": "Bounded list of up to 12 topic tags."
+        },
+        "publishedDate": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 30,
+          "pattern": "^(|\\d{4}-\\d{2}-\\d{2})$",
+          "description": "Display publication date in YYYY-MM-DD format."
+        },
+        "readTime": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 40,
+          "description": "Estimated reading time label (e.g., 4 min read)."
+        },
+        "published": {
+          "type": "boolean",
+          "description": "Whether this blog post is returned by the public Portfolio Blogs API."
+        },
+        "featured": {
+          "type": "boolean",
+          "description": "Whether this blog post is pinned or featured on the portfolio."
+        },
+        "displayOrder": {
+          "type": "integer",
+          "description": "Sort order index for blog listing."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": [
+        "ownerId",
+        "slug",
+        "title",
+        "excerpt",
+        "content",
+        "coverImage",
+        "author",
+        "category",
+        "tags",
+        "publishedDate",
+        "readTime",
+        "published",
+        "featured",
+        "displayOrder",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/public_projects/{projectId}": {
+      "schema": { "$ref": "#/entities/PublicProject" },
+      "description": "Publicly readable portfolio projects when published == true (or legacy status == 'published'); owner-only writes and full visibility for unpublished drafts."
+    },
+    "/admin_projects/{projectId}": {
+      "schema": { "$ref": "#/entities/AdminProjectMeta" },
+      "description": "Strictly owner-only operational console URLs and internal notes split from public_projects to prevent metadata leaks."
+    },
+    "/public_gallery/{photoId}": {
+      "schema": { "$ref": "#/entities/PublicGalleryPhoto" },
+      "description": "Portfolio gallery photos split into 5 fixed Grid slots (section == 'grid', slot 1..5) and unlimited Gallery images (section == 'gallery', slot == 0)."
+    },
+    "/public_blogs/{blogId}": {
+      "schema": { "$ref": "#/entities/PublicBlog" },
+      "description": "Publicly readable portfolio blog articles when published == true; owner-only writes and full visibility for unpublished drafts."
+    }
+  }
+}
