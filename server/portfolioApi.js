@@ -274,6 +274,35 @@ function normalizePublicTimelineDoc(doc) {
   };
 }
 
+function createEmptyPublicProfile(timeline = []) {
+  return {
+    name: '',
+    profession: '',
+    oneLiner: '',
+    pfp: '',
+    about: {
+      spotifyPlaylistUrl: '',
+      spotifyEmbedUrl: '',
+      languages: [],
+      mostActiveOn: {
+        platform: '',
+        url: '',
+      },
+      links: {
+        email: '',
+        github: '',
+        linkedin: '',
+        twitter: '',
+        website: '',
+      },
+      expertise: [],
+    },
+    timeline: Array.isArray(timeline) ? timeline : [],
+    skills: [],
+    updatedAt: null,
+  };
+}
+
 function normalizePublicProfileDoc(doc, timeline = []) {
   if (!doc || !doc.fields || !doc.name) return null;
   const f = doc.fields;
@@ -536,7 +565,7 @@ async function queryPublishedProfileFromFirestore() {
     if (!profileDoc) profileDoc = row.document;
   }
 
-  return normalizePublicProfileDoc(profileDoc, timeline);
+  return normalizePublicProfileDoc(profileDoc, timeline) || createEmptyPublicProfile(timeline);
 }
 
 async function queryAllPublishedPortfolioData() {
@@ -587,18 +616,52 @@ async function verifyOwnerIdToken(idToken) {
 // ═══════════════════════════════════════════════════════════════════
 // REAL-TIME SSE BROADCAST HUB (Zero Firebase SDK needed on portfolio)
 // ═══════════════════════════════════════════════════════════════════
-function createRealtimeHub() {
+function createRealtimeHub(options = {}) {
+  const queryAllData = options.queryAllData || queryAllPublishedPortfolioData;
+  const pollMs = Number.isFinite(options.pollMs) ? options.pollMs : SSE_POLL_MS;
+  const maxClients = Number.isFinite(options.maxClients) ? options.maxClients : MAX_SSE_CLIENTS;
+
   const clients = new Set();
   let lastKnownVersion = 'init';
+  let lastChannelVersions = {
+    projects: null,
+    gallery: null,
+    blogs: null,
+    profile: null,
+  };
   let pollTimer = null;
   let polling = false;
 
-  function writeEvent(res, eventName, data) {
+  function removeClient(client) {
+    if (!client) return;
+    clients.delete(client);
+    if (clients.size === 0 && pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function writeEvent(clientOrRes, eventName, data) {
+    const isClientObj =
+      clientOrRes && typeof clientOrRes === 'object' && 'res' in clientOrRes && clientOrRes.res;
+    const res = isClientObj ? clientOrRes.res : clientOrRes;
     try {
       res.write(`event: ${eventName}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
+      if (typeof res.flush === 'function') {
+        res.flush();
+      }
     } catch {
-      clients.delete(res);
+      if (isClientObj) {
+        removeClient(clientOrRes);
+      } else {
+        for (const c of clients) {
+          if (c.res === res) {
+            removeClient(c);
+            break;
+          }
+        }
+      }
     }
   }
 
@@ -611,33 +674,64 @@ function createRealtimeHub() {
       version: nextVersion,
       updatedAt: new Date().toISOString(),
     };
-    for (const client of clients) {
+    for (const client of Array.from(clients)) {
       if (
         safeChannel === 'all' ||
         client.channels.has('all') ||
         client.channels.has(safeChannel)
       ) {
-        writeEvent(client.res, 'update', payload);
+        writeEvent(client, 'update', payload);
       }
     }
   }
 
   async function refreshFingerprintAndBroadcast(channel = 'all', forceBroadcast = false) {
-    if (polling) return lastKnownVersion;
+    if (polling) {
+      if (forceBroadcast) {
+        const fallbackVersion = `${Date.now().toString(36)}`;
+        broadcastUpdate(channel, fallbackVersion);
+        return fallbackVersion;
+      }
+      return lastKnownVersion;
+    }
     polling = true;
     try {
-      const snapshot = await queryAllPublishedPortfolioData();
+      const snapshot = await queryAllData();
       const { version } = computeContentEtag(snapshot);
-      if (forceBroadcast || (lastKnownVersion !== 'init' && version !== lastKnownVersion)) {
+      const nextChannelVersions = {
+        projects: computeContentEtag(snapshot.projects || []).version,
+        gallery: computeContentEtag({
+          gridPhotos: snapshot.gridPhotos || [],
+          galleryImages: snapshot.galleryImages || [],
+        }).version,
+        blogs: computeContentEtag({
+          posts: snapshot.posts || [],
+          categories: snapshot.categories || [],
+        }).version,
+        profile: computeContentEtag(snapshot.profile || createEmptyPublicProfile()).version,
+      };
+
+      if (forceBroadcast) {
+        lastChannelVersions = nextChannelVersions;
         broadcastUpdate(channel, version);
+      } else if (lastKnownVersion !== 'init' && version !== lastKnownVersion) {
+        const changedChannels = Object.keys(nextChannelVersions).filter(
+          (key) => lastChannelVersions[key] !== null && lastChannelVersions[key] !== nextChannelVersions[key]
+        );
+        const broadcastChannel = changedChannels.length === 1 ? changedChannels[0] : channel;
+        lastChannelVersions = nextChannelVersions;
+        broadcastUpdate(broadcastChannel, version);
       } else {
         lastKnownVersion = version;
+        lastChannelVersions = nextChannelVersions;
       }
       return version;
     } catch (error) {
       console.error('SSE fingerprint refresh error:', error?.message || error);
       if (forceBroadcast) {
-        broadcastUpdate(channel, `${Date.now().toString(36)}`);
+        const fallbackVersion = `${Date.now().toString(36)}`;
+        broadcastUpdate(channel, fallbackVersion);
+        return fallbackVersion;
       }
       return lastKnownVersion;
     } finally {
@@ -646,7 +740,7 @@ function createRealtimeHub() {
   }
 
   function ensurePollLoop() {
-    if (pollTimer || clients.size === 0) return;
+    if (pollTimer || clients.size === 0 || pollMs <= 0) return;
     pollTimer = setInterval(() => {
       if (clients.size === 0) {
         clearInterval(pollTimer);
@@ -654,14 +748,14 @@ function createRealtimeHub() {
         return;
       }
       refreshFingerprintAndBroadcast('all', false);
-    }, SSE_POLL_MS);
+    }, pollMs);
     if (typeof pollTimer.unref === 'function') {
       pollTimer.unref();
     }
   }
 
   function addClient(res, requestedChannels) {
-    if (clients.size >= MAX_SSE_CLIENTS) {
+    if (clients.size >= maxClients) {
       return null;
     }
     const channels = new Set(
@@ -673,13 +767,12 @@ function createRealtimeHub() {
     return client;
   }
 
-  function removeClient(client) {
-    if (!client) return;
-    clients.delete(client);
-    if (clients.size === 0 && pollTimer) {
+  function close() {
+    if (pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
     }
+    clients.clear();
   }
 
   return {
@@ -688,19 +781,69 @@ function createRealtimeHub() {
     writeEvent,
     broadcastUpdate,
     refreshFingerprintAndBroadcast,
+    close,
     getClientCount: () => clients.size,
     getVersion: () => lastKnownVersion,
   };
 }
 
-function registerPortfolioRoutes(app) {
-  const realtimeHub = createRealtimeHub();
+function registerPortfolioRoutes(app, deps = {}) {
+  const queryPublishedProjects =
+    deps.queryPublishedProjects || queryPublishedProjectsFromFirestore;
+  const queryPublishedGallery =
+    deps.queryPublishedGallery || queryPublishedGalleryFromFirestore;
+  const queryPublishedBlogs =
+    deps.queryPublishedBlogs || queryPublishedBlogsFromFirestore;
+  const queryPublishedProfile =
+    deps.queryPublishedProfile || queryPublishedProfileFromFirestore;
+  const queryAllPublishedPortfolio =
+    deps.queryAllPublishedPortfolio ||
+    (async () => {
+      const [projects, gallery, posts, profile] = await Promise.all([
+        queryPublishedProjects(null),
+        queryPublishedGallery(),
+        queryPublishedBlogs(null),
+        queryPublishedProfile(),
+      ]);
+      const categories = extractBlogCategories(posts);
+      return {
+        projects,
+        gridPhotos: gallery.gridPhotos,
+        galleryImages: gallery.galleryImages,
+        posts,
+        categories,
+        profile: profile || createEmptyPublicProfile(),
+      };
+    });
+  const verifyOwnerToken = deps.verifyOwnerIdToken || verifyOwnerIdToken;
+  const heartbeatMs = Number.isFinite(deps.sseHeartbeatMs)
+    ? deps.sseHeartbeatMs
+    : SSE_HEARTBEAT_MS;
+  const pollMs = Number.isFinite(deps.ssePollMs) ? deps.ssePollMs : SSE_POLL_MS;
+  const maxSseClients = Number.isFinite(deps.maxSseClients)
+    ? deps.maxSseClients
+    : MAX_SSE_CLIENTS;
 
-  // Public read-only CORS specifically scoped to GET /api/portfolio/*
+  const realtimeHub = createRealtimeHub({
+    queryAllData: queryAllPublishedPortfolio,
+    pollMs,
+    maxClients: maxSseClients,
+  });
+
+  // Public read-only CORS mounted BEFORE all /api/portfolio routes so GET/HEAD/OPTIONS
+  // responses AND 404/error responses always include Access-Control-Allow-Origin: *
   const publicPortfolioCors = cors({
     origin: '*',
-    methods: ['GET', 'OPTIONS'],
+    methods: ['GET', 'HEAD', 'OPTIONS'],
     exposedHeaders: ['ETag'],
+  });
+
+  app.use('/api/portfolio', (req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      publicPortfolioCors(req, res, next);
+      return;
+    }
+    next();
   });
 
   app.get('/api/health', (_req, res) => {
@@ -712,19 +855,12 @@ function registerPortfolioRoutes(app) {
     });
   });
 
-  app.options('/api/portfolio/all', publicPortfolioCors);
-  app.options('/api/portfolio/profile', publicPortfolioCors);
-  app.options('/api/portfolio/projects', publicPortfolioCors);
-  app.options('/api/portfolio/projects/:slug', publicPortfolioCors);
-  app.options('/api/portfolio/gallery', publicPortfolioCors);
-  app.options('/api/portfolio/blogs', publicPortfolioCors);
-  app.options('/api/portfolio/blogs/:slug', publicPortfolioCors);
-  app.options('/api/portfolio/stream', publicPortfolioCors);
-
   // Unified single-request bootstrap endpoint (Profile + Projects + Gallery + Blogs)
-  app.get('/api/portfolio/all', publicPortfolioCors, async (req, res) => {
+  app.get('/api/portfolio/all', async (req, res) => {
     try {
-      const data = await queryAllPublishedPortfolioData();
+      const rawData = await queryAllPublishedPortfolio();
+      const profile = rawData.profile || createEmptyPublicProfile();
+      const data = { ...rawData, profile };
       sendJsonWithEtag(req, res, data, (version) => ({
         source: 'aurora-command-hub',
         version,
@@ -734,10 +870,10 @@ function registerPortfolioRoutes(app) {
           gridPhotos: data.gridPhotos.length,
           galleryImages: data.galleryImages.length,
           blogs: data.posts.length,
-          timeline: data.profile?.timeline?.length || 0,
-          skills: data.profile?.skills?.length || 0,
+          timeline: profile.timeline.length,
+          skills: profile.skills.length,
         },
-        profile: data.profile,
+        profile,
         projects: data.projects,
         gridPhotos: data.gridPhotos,
         galleryImages: data.galleryImages,
@@ -754,9 +890,9 @@ function registerPortfolioRoutes(app) {
   });
 
   // Public Portfolio Profile Details + Scalable Timeline + Skills (max 10)
-  app.get('/api/portfolio/profile', publicPortfolioCors, async (req, res) => {
+  app.get('/api/portfolio/profile', async (req, res) => {
     try {
-      const profile = await queryPublishedProfileFromFirestore();
+      const profile = (await queryPublishedProfile()) || createEmptyPublicProfile();
       sendJsonWithEtag(req, res, { profile }, (version) => ({
         source: 'aurora-command-hub',
         version,
@@ -772,16 +908,11 @@ function registerPortfolioRoutes(app) {
   });
 
   // Real-time Server-Sent Events (SSE) stream for zero-Firebase live portfolio updates
-  app.get('/api/portfolio/stream', publicPortfolioCors, async (req, res) => {
+  app.get('/api/portfolio/stream', async (req, res) => {
     const rawChannels = String(req.query.channels || '')
       .split(',')
       .map((c) => c.trim().toLowerCase())
       .filter((c) => ALLOWED_CHANNELS.has(c));
-
-    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
 
     const client = realtimeHub.addClient(res, rawChannels);
     if (!client) {
@@ -789,17 +920,31 @@ function registerPortfolioRoutes(app) {
       return;
     }
 
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
     if (typeof res.flushHeaders === 'function') {
       res.flushHeaders();
     }
 
     res.write('retry: 4000\n\n');
+    if (typeof res.flush === 'function') {
+      res.flush();
+    }
+
     const version =
       realtimeHub.getVersion() === 'init'
         ? await realtimeHub.refreshFingerprintAndBroadcast('all', false)
         : realtimeHub.getVersion();
 
-    realtimeHub.writeEvent(res, 'ready', {
+    if (req.destroyed || res.writableEnded) {
+      realtimeHub.removeClient(client);
+      return;
+    }
+
+    realtimeHub.writeEvent(client, 'ready', {
       source: 'aurora-command-hub',
       version,
       channels: Array.from(client.channels),
@@ -809,11 +954,17 @@ function registerPortfolioRoutes(app) {
     const heartbeat = setInterval(() => {
       try {
         res.write(': ping\n\n');
+        if (typeof res.flush === 'function') {
+          res.flush();
+        }
       } catch {
         clearInterval(heartbeat);
         realtimeHub.removeClient(client);
       }
-    }, SSE_HEARTBEAT_MS);
+    }, heartbeatMs);
+    if (typeof heartbeat.unref === 'function') {
+      heartbeat.unref();
+    }
 
     req.on('close', () => {
       clearInterval(heartbeat);
@@ -826,7 +977,7 @@ function registerPortfolioRoutes(app) {
     try {
       const authHeader = String(req.headers.authorization || '');
       const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-      const isOwner = await verifyOwnerIdToken(token);
+      const isOwner = await verifyOwnerToken(token);
       if (!isOwner) {
         res.status(401).json({ error: 'Owner authentication required.' });
         return;
@@ -849,13 +1000,13 @@ function registerPortfolioRoutes(app) {
     }
   });
 
-  app.get('/api/portfolio/projects', publicPortfolioCors, async (req, res) => {
+  app.get('/api/portfolio/projects', async (req, res) => {
     try {
       const typeQuery = String(req.query.type || '').trim().toLowerCase();
       const statusQuery = String(req.query.status || '').trim().toLowerCase();
       const featuredOnly = String(req.query.featured || '').toLowerCase() === 'true';
 
-      let projects = await queryPublishedProjectsFromFirestore(null);
+      let projects = await queryPublishedProjects(null);
 
       if (typeQuery) {
         projects = projects.filter((p) => p.type.toLowerCase() === typeQuery);
@@ -882,7 +1033,7 @@ function registerPortfolioRoutes(app) {
     }
   });
 
-  app.get('/api/portfolio/projects/:slug', publicPortfolioCors, async (req, res) => {
+  app.get('/api/portfolio/projects/:slug', async (req, res) => {
     const slug = String(req.params.slug || '').trim().toLowerCase();
     if (!SLUG_REGEX.test(slug) || slug.length > 80) {
       res.status(400).json({ error: 'Invalid project slug format.' });
@@ -890,7 +1041,7 @@ function registerPortfolioRoutes(app) {
     }
 
     try {
-      const projects = await queryPublishedProjectsFromFirestore(slug);
+      const projects = await queryPublishedProjects(slug);
       if (projects.length === 0) {
         res.status(404).json({ error: 'Published project not found.' });
         return;
@@ -909,9 +1060,9 @@ function registerPortfolioRoutes(app) {
     }
   });
 
-  app.get('/api/portfolio/gallery', publicPortfolioCors, async (req, res) => {
+  app.get('/api/portfolio/gallery', async (req, res) => {
     try {
-      const { gridPhotos, galleryImages } = await queryPublishedGalleryFromFirestore();
+      const { gridPhotos, galleryImages } = await queryPublishedGallery();
       sendJsonWithEtag(req, res, { gridPhotos, galleryImages }, (version) => ({
         source: 'aurora-command-hub',
         version,
@@ -929,13 +1080,13 @@ function registerPortfolioRoutes(app) {
     }
   });
 
-  app.get('/api/portfolio/blogs', publicPortfolioCors, async (req, res) => {
+  app.get('/api/portfolio/blogs', async (req, res) => {
     try {
       const categoryQuery = String(req.query.category || '').trim().toLowerCase();
       const tagQuery = String(req.query.tag || '').trim().toLowerCase();
       const featuredOnly = String(req.query.featured || '').toLowerCase() === 'true';
 
-      const allPosts = await queryPublishedBlogsFromFirestore(null);
+      const allPosts = await queryPublishedBlogs(null);
       const categories = extractBlogCategories(allPosts);
       let posts = allPosts;
 
@@ -968,7 +1119,7 @@ function registerPortfolioRoutes(app) {
     }
   });
 
-  app.get('/api/portfolio/blogs/:slug', publicPortfolioCors, async (req, res) => {
+  app.get('/api/portfolio/blogs/:slug', async (req, res) => {
     const slug = String(req.params.slug || '').trim().toLowerCase();
     if (!SLUG_REGEX.test(slug) || slug.length > 100) {
       res.status(400).json({ error: 'Invalid blog slug format.' });
@@ -976,7 +1127,7 @@ function registerPortfolioRoutes(app) {
     }
 
     try {
-      const posts = await queryPublishedBlogsFromFirestore(slug);
+      const posts = await queryPublishedBlogs(slug);
       if (posts.length === 0) {
         res.status(404).json({ error: 'Published blog post not found.' });
         return;
@@ -995,10 +1146,28 @@ function registerPortfolioRoutes(app) {
       });
     }
   });
+
+  // Scoped JSON 404 & error handlers so /api/portfolio/* NEVER returns HTML and always retains CORS
+  app.use('/api/portfolio', (_req, res) => {
+    res.status(404).json({ error: 'Portfolio API route not found.' });
+  });
+
+  app.use('/api/portfolio', (err, _req, res, _next) => {
+    console.error('Unhandled portfolio API error:', err);
+    if (res.headersSent) return;
+    const status = err && Number.isInteger(err.status) ? err.status : 500;
+    res.status(status).json({
+      error: status === 400 ? 'Malformed request payload.' : 'Portfolio API internal error.',
+    });
+  });
+
+  return { realtimeHub };
 }
 
 module.exports = {
   registerPortfolioRoutes,
+  createRealtimeHub,
+  createEmptyPublicProfile,
   decodeFirestoreValue,
   formatPublishedAtLabel,
   computeContentEtag,

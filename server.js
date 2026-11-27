@@ -22,6 +22,21 @@ app.use((req, res) => {
   res.sendFile(path.join(buildDir, 'index.html'));
 });
 
+app.use((err, req, res, next) => {
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+  if (req.path.startsWith('/api/')) {
+    const status = err && Number.isInteger(err.status) ? err.status : 500;
+    res.status(status).json({
+      error: status === 400 ? 'Malformed JSON request body.' : 'Internal API error.',
+    });
+    return;
+  }
+  next(err);
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Aurora Command Hub server running on http://0.0.0.0:${PORT}`);
 });

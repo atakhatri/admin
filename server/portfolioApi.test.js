@@ -1,8 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
+import express from 'express';
 import portfolioApi from './portfolioApi.js';
 
 const {
+  registerPortfolioRoutes,
+  createEmptyPublicProfile,
   decodeFirestoreValue,
   formatPublishedAtLabel,
   computeContentEtag,
@@ -15,6 +19,155 @@ const {
   normalizePublicTimelineDoc,
   DEFAULT_BLOG_COVER_URL,
 } = portfolioApi;
+
+function createSampleProfile() {
+  return {
+    name: 'Ata Khatri',
+    profession: 'Web Developer',
+    oneLiner: 'Building fast, tactile interfaces.',
+    pfp: 'https://example.com/pfp.jpg',
+    about: {
+      spotifyPlaylistUrl: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',
+      spotifyEmbedUrl: 'https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M?utm_source=generator',
+      languages: ['English', 'Hindi'],
+      mostActiveOn: {
+        platform: 'GitHub',
+        url: 'https://github.com/atakhatri',
+      },
+      links: {
+        email: 'hello@atakhatri.dev',
+        github: 'https://github.com/atakhatri',
+        linkedin: 'https://linkedin.com/in/atakhatri',
+        twitter: 'https://x.com/atakhatri',
+        website: 'https://atakhatri.dev',
+      },
+      expertise: ['Frontend', 'Next.js'],
+    },
+    timeline: [
+      {
+        id: 'evt-1',
+        period: '2024 – Present',
+        title: 'Web Developer',
+        subtitle: 'Independent',
+        description: 'Shipping full-stack web apps.',
+        displayOrder: 0,
+        updatedAt: '2026-11-27T00:00:00.000Z',
+      },
+    ],
+    skills: ['React', 'Next.js', 'TypeScript'],
+    updatedAt: '2026-11-27T00:00:00.000Z',
+  };
+}
+
+async function startTestServer(deps = {}) {
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  const { realtimeHub } = registerPortfolioRoutes(app, {
+    queryPublishedProjects: async () => [],
+    queryPublishedGallery: async () => ({ gridPhotos: [], galleryImages: [] }),
+    queryPublishedBlogs: async () => [],
+    queryPublishedProfile: async () => createSampleProfile(),
+    verifyOwnerIdToken: async (token) => token === 'valid-owner-token',
+    sseHeartbeatMs: 60000,
+    ssePollMs: 0,
+    ...deps,
+  });
+
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  const close = async () => {
+    realtimeHub.close();
+    if (typeof server.closeAllConnections === 'function') {
+      server.closeAllConnections();
+    }
+    await new Promise((resolve) => server.close(resolve));
+  };
+
+  return { baseUrl, realtimeHub, close };
+}
+
+function openSseStream(url) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, (res) => {
+      let buffer = '';
+      const events = [];
+      const comments = [];
+      const waiters = [];
+
+      const flushWaiters = () => {
+        for (let i = waiters.length - 1; i >= 0; i -= 1) {
+          const waiter = waiters[i];
+          if (waiter.predicate({ events, comments })) {
+            clearTimeout(waiter.timer);
+            waiters.splice(i, 1);
+            waiter.resolve();
+          }
+        }
+      };
+
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        buffer += chunk;
+        let sepIndex = buffer.indexOf('\n\n');
+        while (sepIndex !== -1) {
+          const block = buffer.slice(0, sepIndex);
+          buffer = buffer.slice(sepIndex + 2);
+
+          if (block.startsWith(':')) {
+            comments.push(block);
+          } else {
+            let eventName = 'message';
+            const dataLines = [];
+            for (const line of block.split('\n')) {
+              if (line.startsWith('event:')) {
+                eventName = line.slice(6).trim();
+              } else if (line.startsWith('data:')) {
+                dataLines.push(line.slice(5).trim());
+              }
+            }
+            if (dataLines.length > 0) {
+              const rawData = dataLines.join('\n');
+              events.push({ event: eventName, data: JSON.parse(rawData) });
+            }
+          }
+          sepIndex = buffer.indexOf('\n\n');
+        }
+        flushWaiters();
+      });
+
+      const waitFor = (predicate, timeoutMs = 3000) =>
+        new Promise((resWait, rejWait) => {
+          if (predicate({ events, comments })) {
+            resWait();
+            return;
+          }
+          const timer = setTimeout(() => {
+            rejWait(new Error(`Timed out waiting for SSE condition (events=${JSON.stringify(events)})`));
+          }, timeoutMs);
+          waiters.push({ predicate, resolve: resWait, timer });
+        });
+
+      const close = () => {
+        req.destroy();
+        res.destroy();
+      };
+
+      resolve({
+        statusCode: res.statusCode,
+        headers: res.headers,
+        events,
+        comments,
+        waitFor,
+        close,
+      });
+    });
+
+    req.on('error', reject);
+  });
+}
 
 test('decodeFirestoreValue decodes primitives, arrays, and maps', () => {
   assert.equal(decodeFirestoreValue({ stringValue: 'hello' }), 'hello');
@@ -279,4 +432,245 @@ test('normalizePublicProfileDoc & normalizePublicTimelineDoc project clean publi
   assert.equal(liveProfile.skills.length, 10);
   assert.equal(liveProfile.timeline.length, 1);
   assert.equal('ownerId' in liveProfile, false);
+});
+
+test('GET /api/portfolio/profile returns exact shape, CORS, ETag, and 304 support', async () => {
+  const { baseUrl, close } = await startTestServer();
+  try {
+    const res = await fetch(`${baseUrl}/api/portfolio/profile`, {
+      headers: { Origin: 'https://my-portfolio.example.com' },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('access-control-allow-origin'), '*');
+    assert.match(String(res.headers.get('access-control-expose-headers') || ''), /ETag/i);
+    assert.equal(res.headers.get('cache-control'), 'public, max-age=0, must-revalidate');
+    assert.match(String(res.headers.get('content-type') || ''), /application\/json/i);
+
+    const etag = res.headers.get('etag');
+    assert.ok(etag);
+
+    const body = await res.json();
+    assert.equal(body.source, 'aurora-command-hub');
+    assert.equal(typeof body.version, 'string');
+    assert.equal(typeof body.updatedAt, 'string');
+    assert.equal(body.profile.name, 'Ata Khatri');
+    assert.equal(body.profile.profession, 'Web Developer');
+    assert.equal(body.profile.oneLiner, 'Building fast, tactile interfaces.');
+    assert.equal(body.profile.pfp, 'https://example.com/pfp.jpg');
+    assert.deepEqual(body.profile.about.languages, ['English', 'Hindi']);
+    assert.deepEqual(body.profile.about.mostActiveOn, {
+      platform: 'GitHub',
+      url: 'https://github.com/atakhatri',
+    });
+    assert.deepEqual(body.profile.about.expertise, ['Frontend', 'Next.js']);
+    assert.equal(body.profile.timeline.length, 1);
+    assert.equal(body.profile.timeline[0].id, 'evt-1');
+    assert.deepEqual(body.profile.skills, ['React', 'Next.js', 'TypeScript']);
+
+    const cachedRes = await fetch(`${baseUrl}/api/portfolio/profile`, {
+      headers: { 'If-None-Match': etag },
+    });
+    assert.equal(cachedRes.status, 304);
+    assert.equal(cachedRes.headers.get('access-control-allow-origin'), '*');
+  } finally {
+    await close();
+  }
+});
+
+test('GET /api/portfolio/profile and /api/portfolio/all return valid empty/default profile when uninitialized', async () => {
+  const { baseUrl, close } = await startTestServer({
+    queryPublishedProfile: async () => null,
+  });
+  try {
+    const profileRes = await fetch(`${baseUrl}/api/portfolio/profile`);
+    assert.equal(profileRes.status, 200);
+    assert.equal(profileRes.headers.get('access-control-allow-origin'), '*');
+    const profileJson = await profileRes.json();
+    assert.deepEqual(profileJson.profile, createEmptyPublicProfile());
+
+    const allRes = await fetch(`${baseUrl}/api/portfolio/all`);
+    assert.equal(allRes.status, 200);
+    assert.equal(allRes.headers.get('access-control-allow-origin'), '*');
+    const allJson = await allRes.json();
+    assert.deepEqual(allJson.profile, createEmptyPublicProfile());
+    assert.equal(allJson.counts.timeline, 0);
+    assert.equal(allJson.counts.skills, 0);
+    assert.ok(Array.isArray(allJson.projects));
+    assert.ok(Array.isArray(allJson.gridPhotos));
+    assert.ok(Array.isArray(allJson.galleryImages));
+    assert.ok(Array.isArray(allJson.posts));
+    assert.ok(Array.isArray(allJson.blogs));
+    assert.ok(Array.isArray(allJson.categories));
+  } finally {
+    await close();
+  }
+});
+
+test('GET /api/portfolio/all includes populated profile while preserving existing portfolio fields', async () => {
+  const { baseUrl, close } = await startTestServer({
+    queryPublishedProjects: async () => [
+      { id: 'p1', slug: 'demo', title: 'Demo', type: 'Website', status: 'Complete', featured: true, displayOrder: 0 },
+    ],
+    queryPublishedBlogs: async () => [
+      { id: 'b1', slug: 'post-1', title: 'Post 1', category: 'Engineering', tags: ['Node'] },
+    ],
+  });
+  try {
+    const res = await fetch(`${baseUrl}/api/portfolio/all`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('access-control-allow-origin'), '*');
+    const data = await res.json();
+    assert.equal(data.source, 'aurora-command-hub');
+    assert.equal(data.profile.name, 'Ata Khatri');
+    assert.equal(data.counts.projects, 1);
+    assert.equal(data.counts.blogs, 1);
+    assert.equal(data.counts.timeline, 1);
+    assert.equal(data.counts.skills, 3);
+    assert.equal(data.projects.length, 1);
+    assert.equal(data.posts.length, 1);
+    assert.equal(data.blogs.length, 1);
+    assert.deepEqual(data.categories, ['Engineering']);
+  } finally {
+    await close();
+  }
+});
+
+test('CORS headers and JSON responses are preserved on OPTIONS, 404, 502, and SSE 503 errors (never HTML)', async () => {
+  const { baseUrl, close } = await startTestServer({
+    queryPublishedProfile: async () => {
+      throw new Error('Upstream Firestore failure');
+    },
+    maxSseClients: 0,
+  });
+  try {
+    const optRes = await fetch(`${baseUrl}/api/portfolio/profile`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://portfolio.example.com',
+        'Access-Control-Request-Method': 'GET',
+      },
+    });
+    assert.equal(optRes.status, 204);
+    assert.equal(optRes.headers.get('access-control-allow-origin'), '*');
+
+    const notFoundRes = await fetch(`${baseUrl}/api/portfolio/nonexistent-endpoint`, {
+      headers: { Origin: 'https://portfolio.example.com' },
+    });
+    assert.equal(notFoundRes.status, 404);
+    assert.equal(notFoundRes.headers.get('access-control-allow-origin'), '*');
+    assert.match(String(notFoundRes.headers.get('content-type') || ''), /application\/json/i);
+    const notFoundJson = await notFoundRes.json();
+    assert.equal(typeof notFoundJson.error, 'string');
+
+    const failRes = await fetch(`${baseUrl}/api/portfolio/profile`, {
+      headers: { Origin: 'https://portfolio.example.com' },
+    });
+    assert.equal(failRes.status, 502);
+    assert.equal(failRes.headers.get('access-control-allow-origin'), '*');
+    assert.match(String(failRes.headers.get('content-type') || ''), /application\/json/i);
+    const failJson = await failRes.json();
+    assert.equal(typeof failJson.error, 'string');
+
+    const capRes = await fetch(`${baseUrl}/api/portfolio/stream?channels=profile`, {
+      headers: { Origin: 'https://portfolio.example.com' },
+    });
+    assert.equal(capRes.status, 503);
+    assert.equal(capRes.headers.get('access-control-allow-origin'), '*');
+    assert.match(String(capRes.headers.get('content-type') || ''), /application\/json/i);
+    const capJson = await capRes.json();
+    assert.equal(typeof capJson.error, 'string');
+  } finally {
+    await close();
+  }
+});
+
+test('GET /api/portfolio/stream?channels=profile reports profile channel, emits heartbeats, and broadcasts profile updates', async () => {
+  let currentProfile = createSampleProfile();
+  const { baseUrl, close } = await startTestServer({
+    queryPublishedProfile: async () => currentProfile,
+    sseHeartbeatMs: 60,
+    ssePollMs: 0,
+  });
+
+  let stream = null;
+  try {
+    stream = await openSseStream(`${baseUrl}/api/portfolio/stream?channels=profile`);
+    assert.equal(stream.statusCode, 200);
+    assert.equal(stream.headers['access-control-allow-origin'], '*');
+    assert.match(String(stream.headers['content-type'] || ''), /text\/event-stream/i);
+
+    await stream.waitFor(({ events }) => events.some((e) => e.event === 'ready'));
+    const readyEvent = stream.events.find((e) => e.event === 'ready');
+    assert.deepEqual(readyEvent.data.channels, ['profile']);
+    assert.equal(readyEvent.data.source, 'aurora-command-hub');
+
+    // Confirm stream stays open and emits heartbeat comment
+    await stream.waitFor(({ comments }) => comments.some((c) => c.includes(': ping')));
+
+    // Unrelated projects-only update must NOT trigger profile-only subscriber
+    const projRes = await fetch(`${baseUrl}/api/portfolio/revalidate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer valid-owner-token',
+      },
+      body: JSON.stringify({ channel: 'projects' }),
+    });
+    assert.equal(projRes.status, 200);
+
+    // Profile edit/timeline change triggers revalidate(channel: 'profile')
+    currentProfile = {
+      ...currentProfile,
+      oneLiner: 'Updated live one-liner!',
+    };
+    const revalRes = await fetch(`${baseUrl}/api/portfolio/revalidate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer valid-owner-token',
+      },
+      body: JSON.stringify({ channel: 'profile' }),
+    });
+    assert.equal(revalRes.status, 200);
+    const revalJson = await revalRes.json();
+    assert.equal(revalJson.ok, true);
+    assert.equal(revalJson.channel, 'profile');
+
+    await stream.waitFor(({ events }) => events.some((e) => e.event === 'update'));
+    const updates = stream.events.filter((e) => e.event === 'update');
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].data.channel, 'profile');
+    assert.equal(typeof updates[0].data.version, 'string');
+    assert.equal(typeof updates[0].data.updatedAt, 'string');
+  } finally {
+    if (stream) stream.close();
+    await close();
+  }
+});
+
+test('SSE background polling detects profile-only mutations and broadcasts channel: "profile"', async () => {
+  let currentProfile = createSampleProfile();
+  const { baseUrl, close } = await startTestServer({
+    queryPublishedProfile: async () => currentProfile,
+    sseHeartbeatMs: 60000,
+    ssePollMs: 40,
+  });
+
+  let stream = null;
+  try {
+    stream = await openSseStream(`${baseUrl}/api/portfolio/stream?channels=profile`);
+    await stream.waitFor(({ events }) => events.some((e) => e.event === 'ready'));
+
+    currentProfile = {
+      ...currentProfile,
+      skills: [...currentProfile.skills, 'Node.js'],
+    };
+
+    await stream.waitFor(({ events }) => events.some((e) => e.event === 'update'));
+    const updateEvent = stream.events.find((e) => e.event === 'update');
+    assert.equal(updateEvent.data.channel, 'profile');
+  } finally {
+    if (stream) stream.close();
+    await close();
+  }
 });
