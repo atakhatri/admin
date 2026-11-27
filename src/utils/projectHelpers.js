@@ -484,6 +484,7 @@ export default nextConfig;
 // NEXT_PUBLIC_PORTFOLIO_API_URL=${cleanBase}`;
 
   return {
+    profileEndpoint: `${cleanBase}/api/portfolio/profile`,
     endpoint,
     singleEndpoint: `${cleanBase}/api/portfolio/projects/<slug>`,
     galleryEndpoint,

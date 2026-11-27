@@ -40,6 +40,7 @@ import {
   normalizeBlogRecords,
   slugifyBlogTitle,
 } from './utils/blogHelpers';
+import { PROFILE_DOC_ID, normalizeTimelineEvents } from './utils/profileHelpers';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -724,5 +725,154 @@ export async function seedStarterBlogs(ownerUid) {
     notifyPortfolioRevalidate('blogs');
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, 'public_blogs');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PORTFOLIO PROFILE & TIMELINE CRUD
+// ═══════════════════════════════════════════════════════════════════
+export function subscribeOwnerProfile(ownerUid, onData, onError) {
+  const q = query(collection(db, 'public_profile'), where('ownerId', '==', ownerUid));
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const mainDoc =
+        snapshot.docs.find((d) => d.id === PROFILE_DOC_ID) || snapshot.docs[0] || null;
+      onData(mainDoc ? { id: mainDoc.id, ...mainDoc.data() } : null);
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.LIST, 'public_profile');
+      } catch (wrapped) {
+        if (onError) onError(wrapped);
+      }
+    }
+  );
+}
+
+export async function saveOwnerProfile({ ownerUid, existingProfile, data }) {
+  const ref = doc(db, 'public_profile', PROFILE_DOC_ID);
+  const isUpdate = Boolean(existingProfile?.id);
+
+  try {
+    await setDoc(ref, {
+      ownerId: ownerUid,
+      name: data.name,
+      profession: data.profession,
+      oneLiner: data.oneLiner,
+      pfp: data.pfp,
+      spotifyPlaylistUrl: data.spotifyPlaylistUrl,
+      languages: data.languages,
+      mostActivePlatform: data.mostActivePlatform,
+      mostActiveUrl: data.mostActiveUrl,
+      contactEmail: data.contactEmail || '',
+      githubUrl: data.githubUrl || '',
+      linkedinUrl: data.linkedinUrl || '',
+      twitterUrl: data.twitterUrl || '',
+      websiteUrl: data.websiteUrl || '',
+      expertise: data.expertise,
+      skills: data.skills,
+      published: Boolean(data.published),
+      createdAt: existingProfile?.createdAt || serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    notifyPortfolioRevalidate('profile');
+    return PROFILE_DOC_ID;
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      isUpdate ? OperationType.UPDATE : OperationType.CREATE,
+      `public_profile/${PROFILE_DOC_ID}`
+    );
+  }
+}
+
+export function subscribeOwnerTimeline(ownerUid, onData, onError) {
+  const q = query(collection(db, 'public_timeline'), where('ownerId', '==', ownerUid));
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const docs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      onData(normalizeTimelineEvents(docs));
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.LIST, 'public_timeline');
+      } catch (wrapped) {
+        if (onError) onError(wrapped);
+      }
+    }
+  );
+}
+
+export async function saveTimelineEvent({ ownerUid, existingEvent, data }) {
+  const isUpdate = Boolean(existingEvent?.id);
+  const eventId =
+    existingEvent?.id ||
+    `event-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const ref = doc(db, 'public_timeline', eventId);
+
+  try {
+    if (isUpdate) {
+      await updateDoc(ref, {
+        period: data.period,
+        title: data.title,
+        subtitle: data.subtitle,
+        description: data.description,
+        displayOrder: data.displayOrder,
+        published: Boolean(data.published),
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await setDoc(ref, {
+        ownerId: ownerUid,
+        period: data.period,
+        title: data.title,
+        subtitle: data.subtitle,
+        description: data.description,
+        displayOrder: data.displayOrder,
+        published: Boolean(data.published),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+    notifyPortfolioRevalidate('profile');
+    return eventId;
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      isUpdate ? OperationType.UPDATE : OperationType.CREATE,
+      `public_timeline/${eventId}`
+    );
+  }
+}
+
+export async function swapTimelineOrder(eventA, eventB) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'public_timeline', eventA.id), {
+    displayOrder: eventB.displayOrder,
+    updatedAt: serverTimestamp(),
+  });
+  batch.update(doc(db, 'public_timeline', eventB.id), {
+    displayOrder: eventA.displayOrder,
+    updatedAt: serverTimestamp(),
+  });
+  try {
+    await batch.commit();
+    notifyPortfolioRevalidate('profile');
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `public_timeline/${eventA.id}`);
+  }
+}
+
+export async function deleteTimelineEvent(eventId) {
+  const path = `public_timeline/${eventId}`;
+  try {
+    await deleteDoc(doc(db, 'public_timeline', eventId));
+    notifyPortfolioRevalidate('profile');
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 }

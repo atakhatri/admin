@@ -23,20 +23,26 @@ import {
   deleteBlogPost,
   deleteGalleryPhoto,
   deleteProjectPair,
+  deleteTimelineEvent,
   isAuthorizedOwner,
   linkGithubAccount,
   saveBlogPost,
   saveGalleryPhoto,
+  saveOwnerProfile,
   saveProjectPair,
+  saveTimelineEvent,
   signInWithGithubOwner,
   signInWithGoogleOwner,
   signOutOwner,
   subscribeOwnerBlogs,
   subscribeOwnerGallery,
+  subscribeOwnerProfile,
   subscribeOwnerProjects,
+  subscribeOwnerTimeline,
   swapBlogDisplayOrder,
   swapGalleryOrder,
   swapProjectDisplayOrder,
+  swapTimelineOrder,
   toggleBlogFeatured,
   toggleBlogPublished,
   toggleGalleryPublished,
@@ -46,6 +52,7 @@ import {
 } from './firebase';
 
 const ProjectEditorModal = lazy(() => import('./components/ProjectEditorModal'));
+const PortfolioProfileView = lazy(() => import('./components/PortfolioProfileView'));
 const GalleryWorkspace = lazy(() => import('./components/GalleryWorkspace'));
 const GalleryPhotoModal = lazy(() =>
   import('./components/GalleryWorkspace').then((mod) => ({
@@ -89,6 +96,8 @@ function AdminDashboardApp() {
   const [galleryLoading, setGalleryLoading] = useState(true);
   const [blogs, setBlogs] = useState([]);
   const [blogsLoading, setBlogsLoading] = useState(true);
+  const [ownerProfile, setOwnerProfile] = useState(null);
+  const [timelineEvents, setTimelineEvents] = useState([]);
   const [firestoreError, setFirestoreError] = useState('');
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -203,6 +212,8 @@ function AdminDashboardApp() {
       setGalleryLoading(false);
       setBlogs([]);
       setBlogsLoading(false);
+      setOwnerProfile(null);
+      setTimelineEvents([]);
       return undefined;
     }
 
@@ -247,10 +258,32 @@ function AdminDashboardApp() {
       }
     );
 
+    const unsubProfile = subscribeOwnerProfile(
+      user.uid,
+      (docData) => {
+        setOwnerProfile(docData);
+      },
+      (err) => {
+        setFirestoreError(err instanceof Error ? err.message : 'Unable to load profile details.');
+      }
+    );
+
+    const unsubTimeline = subscribeOwnerTimeline(
+      user.uid,
+      (items) => {
+        setTimelineEvents(items);
+      },
+      (err) => {
+        setFirestoreError(err instanceof Error ? err.message : 'Unable to load timeline.');
+      }
+    );
+
     return () => {
       unsubProjects();
       unsubGallery();
       unsubBlogs();
+      unsubProfile();
+      unsubTimeline();
     };
   }, [authorized, user]);
 
@@ -408,6 +441,36 @@ function AdminDashboardApp() {
     await swapBlogDisplayOrder(blogA, blogB);
   };
 
+  // Portfolio Profile & Timeline handlers
+  const handleSaveProfile = async ({ existingProfile, data }) => {
+    if (!user) return;
+    await saveOwnerProfile({
+      ownerUid: user.uid,
+      existingProfile,
+      data,
+    });
+  };
+
+  const handleSaveTimelineEvent = async ({ existingEvent, data }) => {
+    if (!user) return;
+    await saveTimelineEvent({
+      ownerUid: user.uid,
+      existingEvent,
+      data,
+    });
+  };
+
+  const handleMoveTimelineEvent = async (fromIdx, toIdx) => {
+    if (toIdx < 0 || toIdx >= timelineEvents.length) return;
+    const eventA = { ...timelineEvents[fromIdx], displayOrder: fromIdx + 1 };
+    const eventB = { ...timelineEvents[toIdx], displayOrder: toIdx + 1 };
+    await swapTimelineOrder(eventA, eventB);
+  };
+
+  const handleDeleteTimelineEvent = async (eventId) => {
+    await deleteTimelineEvent(eventId);
+  };
+
   const publishedProjectsCount = projects.filter((p) => p.published).length;
   const draftProjectsCount = projects.length - publishedProjectsCount;
   const publishedBlogsCount = blogs.filter((b) => b.published).length;
@@ -488,7 +551,10 @@ function AdminDashboardApp() {
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               onPrimaryAdd={handlePrimaryHeaderAdd}
-              onSelectTab={setActiveTab}
+              onOpenPortfolioProfile={() => {
+                setActiveTab('profile');
+                setSearchQuery('');
+              }}
               onSignOut={() => setLogoutModalOpen(true)}
               weather={weather}
               isClearDay={isClearDay}
@@ -625,6 +691,20 @@ function AdminDashboardApp() {
                   onToggleFeatured={toggleBlogFeatured}
                   onMoveBlog={handleMoveBlog}
                   onDeleteBlog={deleteBlogPost}
+                />
+              </Suspense>
+            )}
+
+            {activeTab === 'profile' && (
+              <Suspense fallback={<WorkspaceFallbackSkeleton />}>
+                <PortfolioProfileView
+                  profile={ownerProfile}
+                  timeline={timelineEvents}
+                  defaultName={defaultAuthor}
+                  onSaveProfile={handleSaveProfile}
+                  onSaveTimelineEvent={handleSaveTimelineEvent}
+                  onMoveTimelineEvent={handleMoveTimelineEvent}
+                  onDeleteTimelineEvent={handleDeleteTimelineEvent}
                 />
               </Suspense>
             )}

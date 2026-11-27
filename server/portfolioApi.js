@@ -6,7 +6,9 @@ const cors = require('cors');
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const OWNER_EMAIL = 'atakhatri905@gmail.com';
-const ALLOWED_CHANNELS = new Set(['all', 'projects', 'gallery', 'blogs']);
+const ALLOWED_CHANNELS = new Set(['all', 'projects', 'gallery', 'blogs', 'profile']);
+const SPOTIFY_PLAYLIST_REGEX =
+  /^https:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?(?:embed\/)?playlist\/([A-Za-z0-9]{10,40})(?:[/?#].*)?$/i;
 const DEFAULT_BLOG_COVER_URL =
   'https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=1200&h=675&fit=crop&q=80&auto=format';
 
@@ -239,6 +241,77 @@ function extractBlogCategories(posts = []) {
   return categories.sort((a, b) => a.localeCompare(b));
 }
 
+function normalizeSpotifyEmbedUrl(rawUrl) {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed) return { spotifyPlaylistUrl: '', spotifyEmbedUrl: '' };
+  const match = trimmed.match(SPOTIFY_PLAYLIST_REGEX);
+  if (!match) return { spotifyPlaylistUrl: '', spotifyEmbedUrl: '' };
+  const id = match[1];
+  return {
+    spotifyPlaylistUrl: `https://open.spotify.com/playlist/${id}`,
+    spotifyEmbedUrl: `https://open.spotify.com/embed/playlist/${id}?utm_source=generator`,
+  };
+}
+
+function normalizePublicTimelineDoc(doc) {
+  if (!doc || !doc.fields || !doc.name) return null;
+  const segments = doc.name.split('/');
+  const id = segments[segments.length - 1];
+  const f = doc.fields;
+
+  if (decodeFirestoreValue(f.published) !== true) return null;
+
+  return {
+    id,
+    period: String(decodeFirestoreValue(f.period) || ''),
+    title: String(decodeFirestoreValue(f.title) || ''),
+    subtitle: String(decodeFirestoreValue(f.subtitle) || ''),
+    description: String(decodeFirestoreValue(f.description) || ''),
+    displayOrder: Number.isFinite(decodeFirestoreValue(f.displayOrder))
+      ? decodeFirestoreValue(f.displayOrder)
+      : 0,
+    updatedAt: decodeFirestoreValue(f.updatedAt) || doc.updateTime || null,
+  };
+}
+
+function normalizePublicProfileDoc(doc, timeline = []) {
+  if (!doc || !doc.fields || !doc.name) return null;
+  const f = doc.fields;
+  if (decodeFirestoreValue(f.published) !== true) return null;
+
+  const rawLanguages = decodeFirestoreValue(f.languages);
+  const rawExpertise = decodeFirestoreValue(f.expertise);
+  const rawSkills = decodeFirestoreValue(f.skills);
+  const spotify = normalizeSpotifyEmbedUrl(decodeFirestoreValue(f.spotifyPlaylistUrl));
+
+  return {
+    name: String(decodeFirestoreValue(f.name) || ''),
+    profession: String(decodeFirestoreValue(f.profession) || ''),
+    oneLiner: String(decodeFirestoreValue(f.oneLiner) || ''),
+    pfp: String(decodeFirestoreValue(f.pfp) || ''),
+    about: {
+      spotifyPlaylistUrl: spotify.spotifyPlaylistUrl,
+      spotifyEmbedUrl: spotify.spotifyEmbedUrl,
+      languages: Array.isArray(rawLanguages) ? rawLanguages.slice(0, 15) : [],
+      mostActiveOn: {
+        platform: String(decodeFirestoreValue(f.mostActivePlatform) || ''),
+        url: String(decodeFirestoreValue(f.mostActiveUrl) || ''),
+      },
+      links: {
+        email: String(decodeFirestoreValue(f.contactEmail) || ''),
+        github: String(decodeFirestoreValue(f.githubUrl) || ''),
+        linkedin: String(decodeFirestoreValue(f.linkedinUrl) || ''),
+        twitter: String(decodeFirestoreValue(f.twitterUrl) || ''),
+        website: String(decodeFirestoreValue(f.websiteUrl) || ''),
+      },
+      expertise: Array.isArray(rawExpertise) ? rawExpertise.slice(0, 15) : [],
+    },
+    timeline: Array.isArray(timeline) ? timeline : [],
+    skills: Array.isArray(rawSkills) ? rawSkills.slice(0, 10) : [],
+    updatedAt: decodeFirestoreValue(f.updatedAt) || doc.updateTime || null,
+  };
+}
+
 function getFirestoreQueryEndpoint() {
   const cfg = loadFirebaseConfig();
   const projectId = cfg.projectId;
@@ -420,11 +493,58 @@ async function queryPublishedBlogsFromFirestore(slugFilter = null) {
   });
 }
 
+async function queryPublishedProfileFromFirestore() {
+  const endpoint = getFirestoreQueryEndpoint();
+  const publishedFilter = {
+    fieldFilter: {
+      field: { fieldPath: 'published' },
+      op: 'EQUAL',
+      value: { booleanValue: true },
+    },
+  };
+
+  const [profileRows, timelineRows] = await Promise.all([
+    runStructuredQuery(endpoint, {
+      from: [{ collectionId: 'public_profile' }],
+      where: publishedFilter,
+    }),
+    runStructuredQuery(endpoint, {
+      from: [{ collectionId: 'public_timeline' }],
+      where: publishedFilter,
+    }),
+  ]);
+
+  const timeline = [];
+  for (const row of timelineRows) {
+    if (!row || !row.document) continue;
+    const item = normalizePublicTimelineDoc(row.document);
+    if (item) timeline.push(item);
+  }
+  timeline.sort((a, b) => {
+    if (a.displayOrder !== b.displayOrder) return a.displayOrder - b.displayOrder;
+    return String(a.title).localeCompare(String(b.title));
+  });
+
+  let profileDoc = null;
+  for (const row of profileRows) {
+    if (!row || !row.document) continue;
+    const segments = String(row.document.name || '').split('/');
+    if (segments[segments.length - 1] === 'main') {
+      profileDoc = row.document;
+      break;
+    }
+    if (!profileDoc) profileDoc = row.document;
+  }
+
+  return normalizePublicProfileDoc(profileDoc, timeline);
+}
+
 async function queryAllPublishedPortfolioData() {
-  const [projects, gallery, posts] = await Promise.all([
+  const [projects, gallery, posts, profile] = await Promise.all([
     queryPublishedProjectsFromFirestore(null),
     queryPublishedGalleryFromFirestore(),
     queryPublishedBlogsFromFirestore(null),
+    queryPublishedProfileFromFirestore(),
   ]);
   const categories = extractBlogCategories(posts);
   return {
@@ -433,6 +553,7 @@ async function queryAllPublishedPortfolioData() {
     galleryImages: gallery.galleryImages,
     posts,
     categories,
+    profile,
   };
 }
 
@@ -592,6 +713,7 @@ function registerPortfolioRoutes(app) {
   });
 
   app.options('/api/portfolio/all', publicPortfolioCors);
+  app.options('/api/portfolio/profile', publicPortfolioCors);
   app.options('/api/portfolio/projects', publicPortfolioCors);
   app.options('/api/portfolio/projects/:slug', publicPortfolioCors);
   app.options('/api/portfolio/gallery', publicPortfolioCors);
@@ -599,7 +721,7 @@ function registerPortfolioRoutes(app) {
   app.options('/api/portfolio/blogs/:slug', publicPortfolioCors);
   app.options('/api/portfolio/stream', publicPortfolioCors);
 
-  // Unified single-request bootstrap endpoint (Projects + Gallery + Blogs)
+  // Unified single-request bootstrap endpoint (Profile + Projects + Gallery + Blogs)
   app.get('/api/portfolio/all', publicPortfolioCors, async (req, res) => {
     try {
       const data = await queryAllPublishedPortfolioData();
@@ -612,7 +734,10 @@ function registerPortfolioRoutes(app) {
           gridPhotos: data.gridPhotos.length,
           galleryImages: data.galleryImages.length,
           blogs: data.posts.length,
+          timeline: data.profile?.timeline?.length || 0,
+          skills: data.profile?.skills?.length || 0,
         },
+        profile: data.profile,
         projects: data.projects,
         gridPhotos: data.gridPhotos,
         galleryImages: data.galleryImages,
@@ -624,6 +749,24 @@ function registerPortfolioRoutes(app) {
       console.error('Portfolio combined fetch failed:', error);
       res.status(502).json({
         error: 'Unable to fetch combined portfolio payload.',
+      });
+    }
+  });
+
+  // Public Portfolio Profile Details + Scalable Timeline + Skills (max 10)
+  app.get('/api/portfolio/profile', publicPortfolioCors, async (req, res) => {
+    try {
+      const profile = await queryPublishedProfileFromFirestore();
+      sendJsonWithEtag(req, res, { profile }, (version) => ({
+        source: 'aurora-command-hub',
+        version,
+        updatedAt: new Date().toISOString(),
+        profile,
+      }));
+    } catch (error) {
+      console.error('Portfolio profile fetch failed:', error);
+      res.status(502).json({
+        error: 'Unable to fetch published portfolio profile.',
       });
     }
   });
@@ -860,8 +1003,11 @@ module.exports = {
   formatPublishedAtLabel,
   computeContentEtag,
   extractBlogCategories,
+  normalizeSpotifyEmbedUrl,
   normalizePublicProjectDoc,
   normalizePublicGalleryDoc,
   normalizePublicBlogDoc,
+  normalizePublicProfileDoc,
+  normalizePublicTimelineDoc,
   DEFAULT_BLOG_COVER_URL,
 };

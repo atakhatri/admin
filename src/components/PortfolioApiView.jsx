@@ -36,6 +36,7 @@ export default function PortfolioApiView({
   const eventSourceRef = useRef(null);
 
   const endpointForTarget = (target) => {
+    if (target === 'profile') return '/api/portfolio/profile';
     if (target === 'gallery') return '/api/portfolio/gallery';
     if (target === 'blogs') return '/api/portfolio/blogs';
     if (target === 'all') return '/api/portfolio/all';
@@ -157,6 +158,7 @@ export default function PortfolioApiView({
   })();
 
   const essentialEndpoints = [
+    { key: 'profile', label: 'Profile', method: 'GET', url: snippets.profileEndpoint },
     { key: 'projects', label: 'Projects', method: 'GET', url: snippets.endpoint },
     { key: 'gallery', label: 'Gallery', method: 'GET', url: snippets.galleryEndpoint },
     { key: 'blogs', label: 'Blogs', method: 'GET', url: snippets.blogsEndpoint },
@@ -349,6 +351,13 @@ export default function PortfolioApiView({
             <div className="api-accordion-body">
               <div className="api-panel-head">
                 <div className="segmented-control" role="group" aria-label="API preview endpoint">
+                  <button
+                    type="button"
+                    className={previewTarget === 'profile' ? 'is-active' : undefined}
+                    onClick={() => setPreviewTarget('profile')}
+                  >
+                    Profile
+                  </button>
                   <button
                     type="button"
                     className={previewTarget === 'blogs' ? 'is-active' : undefined}

@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Bell,
+  IdCard,
   LogOut,
   Plus,
   Search,
-  Settings,
   ShieldCheck,
   User,
   X,
@@ -18,6 +18,7 @@ const TAB_LABELS = {
   consoles: 'Consoles',
   api: 'Portfolio API',
   blogs: 'Blogs',
+  profile: 'Portfolio Profile',
   settings: 'Settings',
 };
 
@@ -27,7 +28,7 @@ export default function HubHeader({
   searchQuery,
   onSearchChange,
   onPrimaryAdd,
-  onSelectTab,
+  onOpenPortfolioProfile,
   onSignOut,
   stats,
   weather,
@@ -271,11 +272,11 @@ export default function HubHeader({
                 className="btn-ghost-sm header-popover-btn"
                 onClick={() => {
                   setOpenPopover(null);
-                  onSelectTab('settings');
+                  if (onOpenPortfolioProfile) onOpenPortfolioProfile();
                 }}
               >
-                <Settings size={14} aria-hidden="true" />
-                <span>Workspace &amp; 3D Settings</span>
+                <IdCard size={15} aria-hidden="true" />
+                <span>Portfolio Profile</span>
               </button>
               <button
                 type="button"

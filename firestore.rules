@@ -42,6 +42,12 @@ service cloud.firestore {
         && (val == '' || val.matches('^https?://[^\\s]+$'));
     }
 
+    function isOptionalEmail(val, maxLen) {
+      return val is string
+        && val.size() <= maxLen
+        && (val == '' || val.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$'));
+    }
+
     function isRequiredHttpUrl(val, maxLen) {
       return val is string
         && val.size() >= 8
@@ -211,6 +217,82 @@ service cloud.firestore {
         && data.displayOrder is int
         && data.displayOrder >= 0
         && data.displayOrder <= 10000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPublicProfile(data, profileId) {
+      return profileId == 'main'
+        && data.keys().hasAll([
+          'ownerId', 'name', 'profession', 'oneLiner', 'pfp',
+          'spotifyPlaylistUrl', 'languages', 'mostActivePlatform',
+          'mostActiveUrl', 'contactEmail', 'githubUrl', 'linkedinUrl',
+          'twitterUrl', 'websiteUrl', 'expertise', 'skills', 'published',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'name', 'profession', 'oneLiner', 'pfp',
+          'spotifyPlaylistUrl', 'languages', 'mostActivePlatform',
+          'mostActiveUrl', 'contactEmail', 'githubUrl', 'linkedinUrl',
+          'twitterUrl', 'websiteUrl', 'expertise', 'skills', 'published',
+          'createdAt', 'updatedAt'
+        ])
+        && data.ownerId is string
+        && data.ownerId.size() >= 1
+        && data.ownerId.size() <= 128
+        && data.ownerId == request.auth.uid
+        && data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 100
+        && data.profession is string
+        && data.profession.size() <= 100
+        && data.oneLiner is string
+        && data.oneLiner.size() <= 240
+        && isOptionalHttpUrl(data.pfp, 1000)
+        && isOptionalHttpUrl(data.spotifyPlaylistUrl, 500)
+        && isValidStringList(data.languages, 15, 40)
+        && data.mostActivePlatform is string
+        && data.mostActivePlatform.size() <= 60
+        && isOptionalHttpUrl(data.mostActiveUrl, 500)
+        && isOptionalEmail(data.contactEmail, 120)
+        && isOptionalHttpUrl(data.githubUrl, 500)
+        && isOptionalHttpUrl(data.linkedinUrl, 500)
+        && isOptionalHttpUrl(data.twitterUrl, 500)
+        && isOptionalHttpUrl(data.websiteUrl, 500)
+        && isValidStringList(data.expertise, 15, 50)
+        && isValidStringList(data.skills, 10, 40)
+        && data.published is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTimelineEvent(data) {
+      return data.keys().hasAll([
+          'ownerId', 'period', 'title', 'subtitle', 'description',
+          'displayOrder', 'published', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'period', 'title', 'subtitle', 'description',
+          'displayOrder', 'published', 'createdAt', 'updatedAt'
+        ])
+        && data.ownerId is string
+        && data.ownerId.size() >= 1
+        && data.ownerId.size() <= 128
+        && data.ownerId == request.auth.uid
+        && data.period is string
+        && data.period.size() >= 1
+        && data.period.size() <= 60
+        && data.title is string
+        && data.title.size() >= 1
+        && data.title.size() <= 120
+        && data.subtitle is string
+        && data.subtitle.size() <= 120
+        && data.description is string
+        && data.description.size() <= 1000
+        && data.displayOrder is int
+        && data.displayOrder >= 0
+        && data.displayOrder <= 10000
+        && data.published is bool
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -392,6 +474,89 @@ service cloud.firestore {
 
       allow delete: if isVerifiedOwner()
         && isValidId(blogId)
+        && existing().ownerId == request.auth.uid;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COLLECTION: public_profile (Single Owner Portfolio Profile Doc)
+    // ═══════════════════════════════════════════════════════════════════
+    match /public_profile/{profileId} {
+      allow get: if isValidId(profileId) && (
+        existing().published == true
+        || (isVerifiedOwner() && existing().ownerId == request.auth.uid)
+      );
+
+      allow list: if (
+        existing().published == true
+        || (isVerifiedOwner() && existing().ownerId == request.auth.uid)
+      );
+
+      allow create: if isVerifiedOwner()
+        && isValidId(profileId)
+        && isValidPublicProfile(incoming(), profileId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedOwner()
+        && isValidId(profileId)
+        && isValidPublicProfile(incoming(), profileId)
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'profession', 'oneLiner', 'pfp', 'spotifyPlaylistUrl',
+          'languages', 'mostActivePlatform', 'mostActiveUrl', 'contactEmail',
+          'githubUrl', 'linkedinUrl', 'twitterUrl', 'websiteUrl',
+          'expertise', 'skills', 'published', 'updatedAt'
+        ]);
+
+      allow delete: if isVerifiedOwner()
+        && isValidId(profileId)
+        && existing().ownerId == request.auth.uid;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COLLECTION: public_timeline (Scalable Portfolio Timeline Milestones)
+    // ═══════════════════════════════════════════════════════════════════
+    match /public_timeline/{eventId} {
+      allow get: if isValidId(eventId) && (
+        existing().published == true
+        || (isVerifiedOwner() && existing().ownerId == request.auth.uid)
+      );
+
+      allow list: if (
+        existing().published == true
+        || (isVerifiedOwner() && existing().ownerId == request.auth.uid)
+      );
+
+      allow create: if isVerifiedOwner()
+        && isValidId(eventId)
+        && isValidTimelineEvent(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedOwner()
+        && isValidId(eventId)
+        && isValidTimelineEvent(incoming())
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: Publish / Draft visibility toggle
+          incoming().diff(existing()).affectedKeys().hasOnly(['published', 'updatedAt'])
+          // Action: Reorder timeline event
+          || incoming().diff(existing()).affectedKeys().hasOnly(['displayOrder', 'updatedAt'])
+          // Action: Full owner timeline milestone edit
+          || incoming().diff(existing()).affectedKeys().hasOnly([
+            'period', 'title', 'subtitle', 'description',
+            'displayOrder', 'published', 'updatedAt'
+          ])
+        );
+
+      allow delete: if isVerifiedOwner()
+        && isValidId(eventId)
         && existing().ownerId == request.auth.uid;
     }
   }

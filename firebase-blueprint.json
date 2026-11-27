@@ -381,6 +381,214 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "PublicProfile": {
+      "title": "PublicProfile",
+      "description": "Owner portfolio profile details (Identity, About, Spotify playlist, Languages, Most Active platform, Expertise, and max 10 Skills) served by GET /api/portfolio/profile when published is true.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the owner."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Portfolio display name."
+        },
+        "profession": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 100,
+          "description": "Role or profession headline (e.g. Web Developer)."
+        },
+        "oneLiner": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 240,
+          "description": "Short one-line bio or tagline for the portfolio hero."
+        },
+        "pfp": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1000,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Optional HTTPS profile picture URL for the portfolio."
+        },
+        "spotifyPlaylistUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Optional Spotify playlist or embed HTTPS URL."
+        },
+        "languages": {
+          "type": "array",
+          "description": "Bounded list of up to 15 spoken languages."
+        },
+        "mostActivePlatform": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 60,
+          "description": "Name of the platform where the owner is most active (e.g. GitHub, X)."
+        },
+        "mostActiveUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Optional HTTPS URL to the most active platform profile."
+        },
+        "contactEmail": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 120,
+          "pattern": "^(|[^@\\s]+@[^@\\s]+\\.[^@\\s]+)$",
+          "description": "Optional public contact email address."
+        },
+        "githubUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Optional GitHub profile HTTPS URL."
+        },
+        "linkedinUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Optional LinkedIn profile HTTPS URL."
+        },
+        "twitterUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Optional X / Twitter profile HTTPS URL."
+        },
+        "websiteUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500,
+          "pattern": "^(|https?://[^\\s]+)$",
+          "description": "Optional personal website or portfolio HTTPS URL."
+        },
+        "expertise": {
+          "type": "array",
+          "description": "Bounded list of up to 15 expertise tags."
+        },
+        "skills": {
+          "type": "array",
+          "description": "Bounded list of up to 10 core skills."
+        },
+        "published": {
+          "type": "boolean",
+          "description": "Whether this portfolio profile is published to GET /api/portfolio/profile."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": [
+        "ownerId",
+        "name",
+        "profession",
+        "oneLiner",
+        "pfp",
+        "spotifyPlaylistUrl",
+        "languages",
+        "mostActivePlatform",
+        "mostActiveUrl",
+        "contactEmail",
+        "githubUrl",
+        "linkedinUrl",
+        "twitterUrl",
+        "websiteUrl",
+        "expertise",
+        "skills",
+        "published",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PublicTimelineEvent": {
+      "title": "PublicTimelineEvent",
+      "description": "Scalable chronological timeline event shown on the portfolio profile and served inside GET /api/portfolio/profile when published is true.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the owner."
+        },
+        "period": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Date range or year label (e.g. 2024 – Present)."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Milestone or role title."
+        },
+        "subtitle": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 120,
+          "description": "Optional organization, school, or location subtitle."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1000,
+          "description": "Short summary of the timeline milestone."
+        },
+        "displayOrder": {
+          "type": "integer",
+          "description": "Sort order index for timeline rendering."
+        },
+        "published": {
+          "type": "boolean",
+          "description": "Whether this timeline event is included in the public profile API."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": [
+        "ownerId",
+        "period",
+        "title",
+        "subtitle",
+        "description",
+        "displayOrder",
+        "published",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -399,6 +607,14 @@
     "/public_blogs/{blogId}": {
       "schema": { "$ref": "#/entities/PublicBlog" },
       "description": "Publicly readable portfolio blog articles when published == true; owner-only writes and full visibility for unpublished drafts."
+    },
+    "/public_profile/{profileId}": {
+      "schema": { "$ref": "#/entities/PublicProfile" },
+      "description": "Single deterministic owner portfolio profile document (/public_profile/main) publicly readable when published == true; owner-only writes."
+    },
+    "/public_timeline/{eventId}": {
+      "schema": { "$ref": "#/entities/PublicTimelineEvent" },
+      "description": "Scalable collection of portfolio timeline events publicly readable when published == true; owner-only writes."
     }
   }
 }

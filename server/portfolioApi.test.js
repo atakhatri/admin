@@ -7,9 +7,12 @@ const {
   formatPublishedAtLabel,
   computeContentEtag,
   extractBlogCategories,
+  normalizeSpotifyEmbedUrl,
   normalizePublicProjectDoc,
   normalizePublicGalleryDoc,
   normalizePublicBlogDoc,
+  normalizePublicProfileDoc,
+  normalizePublicTimelineDoc,
   DEFAULT_BLOG_COVER_URL,
 } = portfolioApi;
 
@@ -187,4 +190,93 @@ test('extractBlogCategories deduplicates and sorts categories and computeContent
   const tagC = computeContentEtag({ posts: [{ slug: 'b' }] });
   assert.equal(tagA.etag, tagB.etag);
   assert.notEqual(tagA.etag, tagC.etag);
+});
+
+test('normalizePublicProfileDoc & normalizePublicTimelineDoc project clean public profile and strip ownerId', () => {
+  const spotify = normalizeSpotifyEmbedUrl(
+    'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=xyz'
+  );
+  assert.equal(spotify.spotifyPlaylistUrl, 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M');
+  assert.equal(
+    spotify.spotifyEmbedUrl,
+    'https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M?utm_source=generator'
+  );
+
+  const draftTimeline = {
+    name: 'projects/p/databases/d/documents/public_timeline/evt-hidden',
+    fields: { published: { booleanValue: false }, title: { stringValue: 'Hidden' } },
+  };
+  assert.equal(normalizePublicTimelineDoc(draftTimeline), null);
+
+  const liveTimeline = normalizePublicTimelineDoc({
+    name: 'projects/p/databases/d/documents/public_timeline/evt-1',
+    fields: {
+      ownerId: { stringValue: 'secret-uid' },
+      period: { stringValue: '2024 – Present' },
+      title: { stringValue: 'Web Developer' },
+      subtitle: { stringValue: 'Freelance' },
+      description: { stringValue: 'Shipping full-stack apps.' },
+      displayOrder: { integerValue: '1' },
+      published: { booleanValue: true },
+    },
+  });
+  assert.equal(liveTimeline.id, 'evt-1');
+  assert.equal(liveTimeline.period, '2024 – Present');
+  assert.equal('ownerId' in liveTimeline, false);
+
+  const draftProfile = {
+    name: 'projects/p/databases/d/documents/public_profile/main',
+    fields: { published: { booleanValue: false }, name: { stringValue: 'Ata' } },
+  };
+  assert.equal(normalizePublicProfileDoc(draftProfile, [liveTimeline]), null);
+
+  const liveProfile = normalizePublicProfileDoc(
+    {
+      name: 'projects/p/databases/d/documents/public_profile/main',
+      updateTime: '2026-11-27T06:00:00Z',
+      fields: {
+        ownerId: { stringValue: 'secret-uid' },
+        name: { stringValue: 'Ata Khatri' },
+        profession: { stringValue: 'Web Dev' },
+        oneLiner: { stringValue: 'Crafting crisp web apps.' },
+        pfp: { stringValue: 'https://example.com/pfp.jpg' },
+        spotifyPlaylistUrl: {
+          stringValue: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',
+        },
+        languages: { arrayValue: { values: [{ stringValue: 'English' }, { stringValue: 'Hindi' }] } },
+        mostActivePlatform: { stringValue: 'GitHub' },
+        mostActiveUrl: { stringValue: 'https://github.com/atakhatri' },
+        contactEmail: { stringValue: 'hello@atakhatri.dev' },
+        githubUrl: { stringValue: 'https://github.com/atakhatri' },
+        linkedinUrl: { stringValue: 'https://linkedin.com/in/atakhatri' },
+        twitterUrl: { stringValue: 'https://x.com/atakhatri' },
+        websiteUrl: { stringValue: 'https://atakhatri.dev' },
+        expertise: { arrayValue: { values: [{ stringValue: 'Frontend' }, { stringValue: 'Next.js' }] } },
+        skills: {
+          arrayValue: {
+            values: Array.from({ length: 12 }, (_, i) => ({ stringValue: `Skill ${i + 1}` })),
+          },
+        },
+        published: { booleanValue: true },
+      },
+    },
+    [liveTimeline]
+  );
+
+  assert.equal(liveProfile.name, 'Ata Khatri');
+  assert.equal(liveProfile.profession, 'Web Dev');
+  assert.equal(liveProfile.about.mostActiveOn.platform, 'GitHub');
+  assert.equal(liveProfile.about.mostActiveOn.url, 'https://github.com/atakhatri');
+  assert.equal(liveProfile.about.links.email, 'hello@atakhatri.dev');
+  assert.equal(liveProfile.about.links.github, 'https://github.com/atakhatri');
+  assert.equal(liveProfile.about.links.linkedin, 'https://linkedin.com/in/atakhatri');
+  assert.equal(liveProfile.about.links.twitter, 'https://x.com/atakhatri');
+  assert.equal(liveProfile.about.links.website, 'https://atakhatri.dev');
+  assert.equal(
+    liveProfile.about.spotifyEmbedUrl,
+    'https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M?utm_source=generator'
+  );
+  assert.equal(liveProfile.skills.length, 10);
+  assert.equal(liveProfile.timeline.length, 1);
+  assert.equal('ownerId' in liveProfile, false);
 });
