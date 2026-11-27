@@ -9,6 +9,7 @@ import HomeWeatherBar from './components/HomeWeatherBar';
 import WorkspaceMetrics from './components/WorkspaceMetrics';
 import ProjectsWorkspace from './components/ProjectsWorkspace';
 import AtmosphereCanvas from './components/AtmosphereCanvas';
+import LogoutConfirmModal from './components/LogoutConfirmModal';
 import {
   BlogCardsSkeleton,
   ConsolesTableSkeleton,
@@ -23,12 +24,11 @@ import {
   deleteGalleryPhoto,
   deleteProjectPair,
   isAuthorizedOwner,
+  linkGithubAccount,
   saveBlogPost,
   saveGalleryPhoto,
   saveProjectPair,
-  seedStarterBlogs,
-  seedStarterGallery,
-  seedStarterProjects,
+  signInWithGithubOwner,
   signInWithGoogleOwner,
   signOutOwner,
   subscribeOwnerBlogs,
@@ -42,6 +42,7 @@ import {
   toggleGalleryPublished,
   toggleProjectFeatured,
   toggleProjectPublished,
+  unlinkGithubAccount,
 } from './firebase';
 
 const ProjectEditorModal = lazy(() => import('./components/ProjectEditorModal'));
@@ -74,9 +75,12 @@ function getInitialSceneMode() {
 
 function AdminDashboardApp() {
   const [user, setUser] = useState(null);
+  const [authRefreshTick, setAuthRefreshTick] = useState(0);
   const [authLoading, setAuthLoading] = useState(true);
-  const [signingIn, setSigningIn] = useState(false);
+  const [signingInProvider, setSigningInProvider] = useState('');
   const [authError, setAuthError] = useState('');
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const [activeTab, setActiveTab] = useState('home');
   const [projects, setProjects] = useState([]);
@@ -86,10 +90,6 @@ function AdminDashboardApp() {
   const [blogs, setBlogs] = useState([]);
   const [blogsLoading, setBlogsLoading] = useState(true);
   const [firestoreError, setFirestoreError] = useState('');
-
-  const [seeding, setSeeding] = useState(false);
-  const [seedingGallery, setSeedingGallery] = useState(false);
-  const [seedingBlogs, setSeedingBlogs] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -260,8 +260,8 @@ function AdminDashboardApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authorized]);
 
-  const handleSignIn = async () => {
-    setSigningIn(true);
+  const handleSignInGoogle = async () => {
+    setSigningInProvider('google');
     setAuthError('');
     try {
       await signInWithGoogleOwner();
@@ -271,13 +271,50 @@ function AdminDashboardApp() {
         setAuthError(msg);
       }
     } finally {
-      setSigningIn(false);
+      setSigningInProvider('');
     }
   };
 
-  const handleSignOut = async () => {
-    await signOutOwner();
-    setActiveTab('home');
+  const handleSignInGithub = async () => {
+    setSigningInProvider('github');
+    setAuthError('');
+    try {
+      await signInWithGithubOwner();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'GitHub Sign-In failed.';
+      if (!msg.includes('popup-closed-by-user')) {
+        setAuthError(msg);
+      }
+    } finally {
+      setSigningInProvider('');
+    }
+  };
+
+  const handleConfirmSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await signOutOwner();
+      setLogoutModalOpen(false);
+      setActiveTab('home');
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
+  const handleLinkGithub = async () => {
+    const updatedUser = await linkGithubAccount();
+    if (updatedUser) {
+      setUser(auth.currentUser || updatedUser);
+      setAuthRefreshTick((t) => t + 1);
+    }
+  };
+
+  const handleUnlinkGithub = async () => {
+    const updatedUser = await unlinkGithubAccount();
+    if (updatedUser) {
+      setUser(auth.currentUser || updatedUser);
+      setAuthRefreshTick((t) => t + 1);
+    }
   };
 
   // Projects handlers
@@ -309,16 +346,6 @@ function AdminDashboardApp() {
     const normalizedA = { ...projectA, displayOrder: fromIdx + 1 };
     const normalizedB = { ...projectB, displayOrder: toIdx + 1 };
     await swapProjectDisplayOrder(normalizedA, normalizedB);
-  };
-
-  const handleSeedStarterProjects = async () => {
-    if (!user) return;
-    setSeeding(true);
-    try {
-      await seedStarterProjects(user.uid);
-    } finally {
-      setSeeding(false);
-    }
   };
 
   // Gallery handlers
@@ -354,16 +381,6 @@ function AdminDashboardApp() {
     await swapGalleryOrder(itemA, itemB);
   };
 
-  const handleSeedStarterGallery = async () => {
-    if (!user) return;
-    setSeedingGallery(true);
-    try {
-      await seedStarterGallery(user.uid);
-    } finally {
-      setSeedingGallery(false);
-    }
-  };
-
   // Blogs handlers
   const handleOpenNewBlog = () => {
     setEditingBlog(null);
@@ -389,16 +406,6 @@ function AdminDashboardApp() {
     const blogA = { ...blogs[fromIdx], displayOrder: fromIdx + 1 };
     const blogB = { ...blogs[toIdx], displayOrder: toIdx + 1 };
     await swapBlogDisplayOrder(blogA, blogB);
-  };
-
-  const handleSeedStarterBlogs = async () => {
-    if (!user) return;
-    setSeedingBlogs(true);
-    try {
-      await seedStarterBlogs(user.uid);
-    } finally {
-      setSeedingBlogs(false);
-    }
   };
 
   const publishedProjectsCount = projects.filter((p) => p.published).length;
@@ -454,9 +461,10 @@ function AdminDashboardApp() {
           user={user}
           isUnauthorizedUser={isUnauthorizedUser}
           authError={authError}
-          signingIn={signingIn}
-          onSignIn={handleSignIn}
-          onSignOut={handleSignOut}
+          signingInProvider={signingInProvider}
+          onSignInGoogle={handleSignInGoogle}
+          onSignInGithub={handleSignInGithub}
+          onSignOut={handleConfirmSignOut}
         />
       ) : (
         <div
@@ -470,7 +478,7 @@ function AdminDashboardApp() {
               setActiveTab(tab);
               setSearchQuery('');
             }}
-            onSignOut={handleSignOut}
+            onSignOut={() => setLogoutModalOpen(true)}
           />
 
           <main className="hub-main">
@@ -481,7 +489,7 @@ function AdminDashboardApp() {
               onSearchChange={setSearchQuery}
               onPrimaryAdd={handlePrimaryHeaderAdd}
               onSelectTab={setActiveTab}
-              onSignOut={handleSignOut}
+              onSignOut={() => setLogoutModalOpen(true)}
               weather={weather}
               isClearDay={isClearDay}
               stats={{
@@ -531,7 +539,6 @@ function AdminDashboardApp() {
                 <ProjectsWorkspace
                   projects={projects}
                   loading={projectsLoading}
-                  seeding={seeding}
                   searchQuery={searchQuery}
                   onSearchChange={setSearchQuery}
                   statusFilter={statusFilter}
@@ -542,7 +549,6 @@ function AdminDashboardApp() {
                   onToggleFeatured={toggleProjectFeatured}
                   onMoveProject={handleMoveProject}
                   onDeleteProject={deleteProjectPair}
-                  onSeedStarter={handleSeedStarterProjects}
                 />
               </>
             )}
@@ -551,7 +557,6 @@ function AdminDashboardApp() {
               <ProjectsWorkspace
                 projects={projects}
                 loading={projectsLoading}
-                seeding={seeding}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
                 statusFilter={statusFilter}
@@ -562,7 +567,6 @@ function AdminDashboardApp() {
                 onToggleFeatured={toggleProjectFeatured}
                 onMoveProject={handleMoveProject}
                 onDeleteProject={deleteProjectPair}
-                onSeedStarter={handleSeedStarterProjects}
               />
             )}
 
@@ -573,7 +577,6 @@ function AdminDashboardApp() {
                   filledGridCount={galleryState.filledGridCount}
                   galleryImages={galleryState.galleryImages}
                   loading={galleryLoading}
-                  seeding={seedingGallery}
                   searchQuery={searchQuery}
                   onSearchChange={setSearchQuery}
                   onOpenGridSlotEditor={handleOpenGridSlotEditor}
@@ -582,7 +585,6 @@ function AdminDashboardApp() {
                   onTogglePublish={toggleGalleryPublished}
                   onMoveGalleryImage={handleMoveGalleryImage}
                   onDeletePhoto={deleteGalleryPhoto}
-                  onSeedStarterGallery={handleSeedStarterGallery}
                 />
               </Suspense>
             )}
@@ -613,7 +615,6 @@ function AdminDashboardApp() {
                 <BlogsWorkspace
                   blogs={blogs}
                   loading={blogsLoading}
-                  seeding={seedingBlogs}
                   searchQuery={searchQuery}
                   onSearchChange={setSearchQuery}
                   blogFilter={blogFilter}
@@ -624,7 +625,6 @@ function AdminDashboardApp() {
                   onToggleFeatured={toggleBlogFeatured}
                   onMoveBlog={handleMoveBlog}
                   onDeleteBlog={deleteBlogPost}
-                  onSeedStarterBlogs={handleSeedStarterBlogs}
                 />
               </Suspense>
             )}
@@ -632,10 +632,13 @@ function AdminDashboardApp() {
             {activeTab === 'settings' && (
               <Suspense fallback={<WorkspaceFallbackSkeleton />}>
                 <SettingsView
+                  providerRefreshTick={authRefreshTick}
                   user={user}
                   unit={unit}
                   onChangeUnit={setUnit}
-                  onSignOut={handleSignOut}
+                  onSignOut={() => setLogoutModalOpen(true)}
+                  onLinkGithub={handleLinkGithub}
+                  onUnlinkGithub={handleUnlinkGithub}
                   sceneModeOverride={sceneModeOverride}
                   activePreset={atmosphere.preset}
                   liveWeather={weather}
@@ -684,6 +687,13 @@ function AdminDashboardApp() {
               />
             </Suspense>
           )}
+
+          <LogoutConfirmModal
+            open={logoutModalOpen}
+            signingOut={signingOut}
+            onCancel={() => setLogoutModalOpen(false)}
+            onConfirm={handleConfirmSignOut}
+          />
         </div>
       )}
     </>

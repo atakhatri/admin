@@ -7,6 +7,11 @@ import {
   slugifyTitle,
   validateProjectForm,
 } from '../utils/projectHelpers';
+import {
+  PROJECT_IMPORT_ACCEPT,
+  parseImportedProjectFile,
+} from '../utils/fileImportParser';
+import FileImportDropzone from './ui/FileImportDropzone';
 
 function buildInitialState(project, nextOrder) {
   if (!project) {
@@ -97,6 +102,35 @@ export default function ProjectEditorModal({
     });
   };
 
+  const handleApplyImportedProject = (imported) => {
+    if (!imported) return;
+    setForm((prev) => ({
+      ...prev,
+      title: imported.title || prev.title,
+      slug: imported.slug || slugifyTitle(imported.title || prev.title),
+      description: imported.description !== undefined ? imported.description : prev.description,
+      image: imported.image || prev.image,
+      tags: imported.tags || prev.tags,
+      liveUrl: imported.liveUrl || prev.liveUrl,
+      githubUrl: imported.githubUrl || prev.githubUrl,
+      type: PROJECT_TYPES.includes(imported.type) ? imported.type : prev.type,
+      status: PROJECT_STATUSES.includes(imported.status) ? imported.status : prev.status,
+      published: typeof imported.published === 'boolean' ? imported.published : prev.published,
+      featured: typeof imported.featured === 'boolean' ? imported.featured : prev.featured,
+      authDashboardUrl: imported.authDashboardUrl || prev.authDashboardUrl,
+      dbDashboardUrl: imported.dbDashboardUrl || prev.dbDashboardUrl,
+      hostingDashboardUrl: imported.hostingDashboardUrl || prev.hostingDashboardUrl,
+      monitoringUrl: imported.monitoringUrl || prev.monitoringUrl,
+      environmentNotes: imported.environmentNotes || prev.environmentNotes,
+      providerTags: imported.providerTags || prev.providerTags,
+    }));
+    if (imported.slug) {
+      setSlugTouched(true);
+    }
+    setErrors({});
+    setSubmitError('');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const validation = validateProjectForm(form);
@@ -144,10 +178,6 @@ export default function ProjectEditorModal({
             <h2 className="modal-title">
               {project ? `Edit ${project.title}` : 'New Portfolio Project'}
             </h2>
-            <p className="modal-subtitle">
-              Matches your portfolio schema (title, description, image, tags, liveUrl, githubUrl,
-              type, status). Console URLs remain private.
-            </p>
           </div>
           <button
             type="button"
@@ -161,6 +191,15 @@ export default function ProjectEditorModal({
         </div>
 
         <form className="editor-form" onSubmit={handleSubmit} noValidate>
+          <FileImportDropzone
+            kind="project"
+            accept={PROJECT_IMPORT_ACCEPT}
+            formatsLabel=".js, .ts, .json, .md"
+            parseFile={parseImportedProjectFile}
+            onApplyItem={handleApplyImportedProject}
+            disabled={saving}
+          />
+
           <div className="editor-section">
             <h3 className="editor-section-title">01. Portfolio Project Details</h3>
 
@@ -179,7 +218,7 @@ export default function ProjectEditorModal({
               </div>
 
               <div className="form-field">
-                <label htmlFor="proj-slug">API Slug</label>
+                <label htmlFor="proj-slug">Slug</label>
                 <input
                   id="proj-slug"
                   type="text"
@@ -328,7 +367,7 @@ export default function ProjectEditorModal({
                     checked={form.published}
                     onChange={(e) => updateField('published', e.target.checked)}
                   />
-                  <span>Publish to Portfolio JSON API</span>
+                  <span>Published</span>
                 </label>
               </div>
 

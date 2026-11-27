@@ -1,13 +1,16 @@
-import React from 'react';
-import { LogOut, Pause, Play, ShieldCheck, Sparkles, Zap } from 'lucide-react';
+import React, { useState } from 'react';
+import { Check, Link2, LogOut, Pause, Play, ShieldCheck, Sparkles, Unlink, Zap } from 'lucide-react';
 import { OWNER_EMAIL } from '../utils/projectHelpers';
 import { ATMOSPHERE_MODES } from '../three/atmospherePresets';
+import { getLinkedProviderIds } from '../firebase';
 
 export default function SettingsView({
   user,
   unit,
   onChangeUnit,
   onSignOut,
+  onLinkGithub,
+  onUnlinkGithub,
   sceneModeOverride,
   activePreset,
   liveWeather,
@@ -16,6 +19,44 @@ export default function SettingsView({
   onToggleScenePause,
   onTriggerLightning,
 }) {
+  const [linkingBusy, setLinkingBusy] = useState(false);
+  const [linkMessage, setLinkMessage] = useState('');
+  const [linkError, setLinkError] = useState('');
+
+  const linkedProviders = getLinkedProviderIds(user);
+  const hasGoogle = linkedProviders.includes('google.com');
+  const hasGithub = linkedProviders.includes('github.com');
+
+  const handleLinkGithubClick = async () => {
+    setLinkingBusy(true);
+    setLinkError('');
+    setLinkMessage('');
+    try {
+      await onLinkGithub();
+      setLinkMessage('GitHub linked! You can now sign in with either Google or GitHub.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unable to link GitHub account.';
+      if (!msg.includes('popup-closed-by-user')) {
+        setLinkError(msg);
+      }
+    } finally {
+      setLinkingBusy(false);
+    }
+  };
+
+  const handleUnlinkGithubClick = async () => {
+    setLinkingBusy(true);
+    setLinkError('');
+    setLinkMessage('');
+    try {
+      await onUnlinkGithub();
+      setLinkMessage('GitHub sign-in disconnected.');
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : 'Unable to disconnect GitHub.');
+    } finally {
+      setLinkingBusy(false);
+    }
+  };
   return (
     <section className="workspace-section" aria-label="Workspace settings">
       <div className="section-heading-row">
@@ -117,6 +158,57 @@ export default function SettingsView({
 
           <div className="settings-row">
             <div>
+              <h3 className="settings-item-title">Connected Sign-In Methods</h3>
+              <p className="settings-item-copy">
+                Link GitHub to your Google owner account so both providers open the same workspace
+                and data.
+              </p>
+              {linkMessage && (
+                <p className="settings-item-copy" style={{ color: '#86efac', marginTop: 6 }}>
+                  {linkMessage}
+                </p>
+              )}
+              {linkError && (
+                <p className="field-error-banner" role="alert" style={{ marginTop: 8 }}>
+                  {linkError}
+                </p>
+              )}
+            </div>
+            <div className="settings-scene-actions">
+              {hasGoogle && (
+                <span className="status-text status-published">
+                  <Check size={14} aria-hidden="true" />
+                  <span>Google</span>
+                </span>
+              )}
+              {hasGithub ? (
+                <button
+                  type="button"
+                  className="btn-ghost-sm"
+                  disabled={linkingBusy || !hasGoogle}
+                  onClick={handleUnlinkGithubClick}
+                >
+                  <Unlink size={14} aria-hidden="true" />
+                  <span>{linkingBusy ? 'Updating...' : 'Unlink GitHub'}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={linkingBusy}
+                  onClick={handleLinkGithubClick}
+                >
+                  <Link2 size={14} aria-hidden="true" />
+                  <span>{linkingBusy ? 'Linking...' : 'Link GitHub'}</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="settings-divider" />
+
+          <div className="settings-row">
+            <div>
               <h3 className="settings-item-title">Temperature Unit</h3>
               <p className="settings-item-copy">
                 Applies to the floating current-location weather display on Home.
@@ -151,7 +243,7 @@ export default function SettingsView({
                 Sign out of Firebase Authentication on this browser.
               </p>
             </div>
-            <button type="button" className="btn-secondary" onClick={onSignOut}>
+            <button type="button" className="btn-logout-danger" onClick={onSignOut}>
               <LogOut size={15} aria-hidden="true" />
               <span>Sign Out</span>
             </button>

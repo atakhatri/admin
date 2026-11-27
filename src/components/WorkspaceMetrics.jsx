@@ -112,7 +112,7 @@ export default function WorkspaceMetrics({
         onClick={() => onSelectTab('api')}
       >
         <div className="metric-card-head">
-          <span className="metric-card-label">Live in API</span>
+          <span className="metric-card-label">Published</span>
           <span className="metric-card-icon" aria-hidden="true">
             <Radio size={15} strokeWidth={1.9} />
           </span>
@@ -122,7 +122,7 @@ export default function WorkspaceMetrics({
           <div className="metric-val-stack">
             <span className="metric-card-value">{publishedProjectsCount}</span>
             <span className="metric-card-subval">
-              {liveTotalCount} total endpoints items
+              {liveTotalCount} published items
             </span>
           </div>
 

@@ -1,9 +1,12 @@
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
+  GithubAuthProvider,
   GoogleAuthProvider,
+  linkWithPopup,
   signInWithPopup,
   signOut,
+  unlink,
 } from 'firebase/auth';
 import {
   collection,
@@ -44,6 +47,9 @@ export const auth = getAuth(app);
 
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+const githubProvider = new GithubAuthProvider();
+githubProvider.addScope('user:email');
 
 export const OperationType = Object.freeze({
   CREATE: 'create',
@@ -99,6 +105,68 @@ export function isAuthorizedOwner(user) {
 
 export async function signInWithGoogleOwner() {
   return signInWithPopup(auth, googleProvider);
+}
+
+export function getLinkedProviderIds(user) {
+  if (!user || !Array.isArray(user.providerData)) return [];
+  return user.providerData.map((p) => p?.providerId).filter(Boolean);
+}
+
+export async function signInWithGithubOwner() {
+  try {
+    return await signInWithPopup(auth, githubProvider);
+  } catch (err) {
+    const code = err && typeof err === 'object' ? err.code : '';
+    if (code === 'auth/operation-not-allowed') {
+      throw new Error(
+        'GitHub Sign-In is not enabled in Firebase Console yet. Enable GitHub under Authentication → Sign-in method.'
+      );
+    }
+    if (code === 'auth/account-exists-with-different-credential') {
+      throw new Error(
+        'Your email is already registered with Google. Sign in with Google first, then click "Link GitHub" in Settings so both providers open the same account.'
+      );
+    }
+    throw err;
+  }
+}
+
+export async function linkGithubAccount() {
+  if (!auth.currentUser) {
+    throw new Error('Sign in with Google first before linking GitHub.');
+  }
+  try {
+    const result = await linkWithPopup(auth.currentUser, githubProvider);
+    await result.user.reload();
+    return result.user;
+  } catch (err) {
+    const code = err && typeof err === 'object' ? err.code : '';
+    if (code === 'auth/provider-already-linked') {
+      return auth.currentUser;
+    }
+    if (code === 'auth/credential-already-in-use') {
+      throw new Error(
+        'That GitHub account is already attached to a separate Firebase user. Delete the extra GitHub user in Firebase Console → Authentication → Users, then click Link GitHub again.'
+      );
+    }
+    if (code === 'auth/operation-not-allowed') {
+      throw new Error(
+        'GitHub Sign-In is not enabled in Firebase Console yet. Enable GitHub under Authentication → Sign-in method.'
+      );
+    }
+    throw err;
+  }
+}
+
+export async function unlinkGithubAccount() {
+  if (!auth.currentUser) return null;
+  const providers = getLinkedProviderIds(auth.currentUser);
+  if (providers.length <= 1) {
+    throw new Error('Keep at least one sign-in method connected to your account.');
+  }
+  const updated = await unlink(auth.currentUser, 'github.com');
+  await updated.reload();
+  return updated;
 }
 
 export async function signOutOwner() {

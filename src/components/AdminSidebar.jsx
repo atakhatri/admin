@@ -22,6 +22,7 @@ export const ADMIN_TABS = [
 ];
 
 export default function AdminSidebar({ activeTab, onSelectTab, onSignOut }) {
+  const [faviconFailed, setFaviconFailed] = React.useState(false);
   const activeIdx = Math.max(
     0,
     ADMIN_TABS.findIndex((tab) => tab.id === activeTab)
@@ -38,10 +39,20 @@ export default function AdminSidebar({ activeTab, onSelectTab, onSignOut }) {
       <button
         type="button"
         className="hub-logo-btn"
-        aria-label="Aurora Command Hub Home"
+        aria-label="Admin Dashboard Home"
+        title="Admin Dashboard"
         onClick={() => onSelectTab('home')}
       >
-        <BrandLogo />
+        {!faviconFailed ? (
+          <img
+            src="/favicon.ico"
+            alt="Admin Dashboard"
+            className="hub-brand-favicon"
+            onError={() => setFaviconFailed(true)}
+          />
+        ) : (
+          <BrandLogo />
+        )}
       </button>
 
       <nav className="hub-nav" aria-label="Admin sections">

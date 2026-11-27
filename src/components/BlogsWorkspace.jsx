@@ -7,7 +7,6 @@ import {
   Clock,
   FilePlus2,
   Pencil,
-  Sparkles,
   Star,
   Trash2,
 } from 'lucide-react';
@@ -15,6 +14,7 @@ import { filterBlogs, formatBlogDate } from '../utils/blogHelpers';
 import { isSafeHttpUrl } from '../utils/projectHelpers';
 import { BlogCardsSkeleton } from './ui/Skeleton';
 import LazyImage from './ui/LazyImage';
+import ExpandableFilterBar from './ui/ExpandableFilterBar';
 
 const BLOG_FILTER_TABS = [
   { id: 'all', label: 'All Posts' },
@@ -26,7 +26,6 @@ const BLOG_FILTER_TABS = [
 export default function BlogsWorkspace({
   blogs,
   loading,
-  seeding,
   searchQuery,
   onSearchChange,
   blogFilter,
@@ -37,7 +36,6 @@ export default function BlogsWorkspace({
   onToggleFeatured,
   onMoveBlog,
   onDeleteBlog,
-  onSeedStarterBlogs,
 }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -64,29 +62,23 @@ export default function BlogsWorkspace({
     return 0;
   };
 
+  const filterOptions = BLOG_FILTER_TABS.map((tab) => ({
+    id: tab.id,
+    label: tab.label,
+    count: countForTab(tab.id),
+  }));
+
   return (
     <section className="workspace-section" aria-label="Portfolio blogs manager">
       <div className="section-heading-row">
         <div>
           <h2 className="section-title">Portfolio Blogs</h2>
           <p className="section-subtitle">
-            Write, edit, reorder, and publish portfolio articles in Markdown — served dynamically
-            via <code>GET /api/portfolio/blogs</code> and <code>/api/portfolio/blogs/:slug</code>.
+            Write, edit, reorder, and publish your portfolio articles in Markdown.
           </p>
         </div>
 
         <div className="empty-actions">
-          {blogs.length === 0 && !loading && (
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={seeding}
-              onClick={onSeedStarterBlogs}
-            >
-              <Sparkles size={15} aria-hidden="true" />
-              <span>{seeding ? 'Loading Starters...' : 'Load 3 Starter Posts'}</span>
-            </button>
-          )}
           <button type="button" className="btn-primary" onClick={onNewBlog}>
             <FilePlus2 size={16} aria-hidden="true" />
             <span>New Blog Post</span>
@@ -95,25 +87,13 @@ export default function BlogsWorkspace({
       </div>
 
       <div className="workspace-toolbar">
-        <div className="filter-tabs" role="tablist" aria-label="Filter blog posts">
-          {BLOG_FILTER_TABS.map((tab) => {
-            const count = countForTab(tab.id);
-            const isActive = blogFilter === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                className={`filter-tab${isActive ? ' is-active' : ''}`}
-                onClick={() => onBlogFilterChange(tab.id)}
-              >
-                <span>{tab.label}</span>
-                <span className="tab-count">{count}</span>
-              </button>
-            );
-          })}
-        </div>
+        <ExpandableFilterBar
+          options={filterOptions}
+          value={blogFilter}
+          onChange={onBlogFilterChange}
+          label="Filters"
+          defaultId="all"
+        />
 
         {searchQuery && (
           <div className="active-search-indicator">
@@ -135,22 +115,12 @@ export default function BlogsWorkspace({
         <div className="empty-state">
           <h3 className="empty-title">No blog posts yet</h3>
           <p className="empty-copy">
-            Create your first portfolio article or load starter posts to preview how blogs publish
-            to your public JSON API.
+            Create your first portfolio article or import a Markdown file to get started.
           </p>
           <div className="empty-actions">
             <button type="button" className="btn-primary" onClick={onNewBlog}>
               <FilePlus2 size={16} aria-hidden="true" />
               <span>Write First Post</span>
-            </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={seeding}
-              onClick={onSeedStarterBlogs}
-            >
-              <Sparkles size={16} aria-hidden="true" />
-              <span>{seeding ? 'Importing...' : 'Load 3 Starter Posts'}</span>
             </button>
           </div>
         </div>
@@ -305,7 +275,7 @@ export default function BlogsWorkspace({
                       runAction(post.id, () => onTogglePublish(post.id, !isPublished))
                     }
                   >
-                    {isPublished ? 'Unpublish' : 'Publish to API'}
+                    {isPublished ? 'Unpublish' : 'Publish'}
                   </button>
 
                   <div className="card-foot-right">

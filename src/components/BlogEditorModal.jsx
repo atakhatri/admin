@@ -8,6 +8,11 @@ import {
   validateBlogForm,
 } from '../utils/blogHelpers';
 import { isSafeHttpUrl } from '../utils/projectHelpers';
+import {
+  BLOG_IMPORT_ACCEPT,
+  parseImportedBlogFile,
+} from '../utils/fileImportParser';
+import FileImportDropzone from './ui/FileImportDropzone';
 
 function buildInitialBlogForm(blog, nextOrder, defaultAuthor) {
   if (!blog) {
@@ -94,6 +99,30 @@ export default function BlogEditorModal({
     });
   };
 
+  const handleApplyImportedBlog = (imported) => {
+    if (!imported) return;
+    setForm((prev) => ({
+      ...prev,
+      title: imported.title || prev.title,
+      slug: imported.slug || slugifyBlogTitle(imported.title || prev.title),
+      excerpt: imported.excerpt !== undefined ? imported.excerpt : prev.excerpt,
+      content: imported.content !== undefined ? imported.content : prev.content,
+      coverImage: imported.coverImage || prev.coverImage,
+      author: imported.author || prev.author,
+      category: imported.category !== undefined ? imported.category : prev.category,
+      tags: imported.tags !== undefined ? imported.tags : prev.tags,
+      publishedDate: imported.publishedDate || prev.publishedDate,
+      readTime: imported.readTime !== undefined ? imported.readTime : prev.readTime,
+      published: typeof imported.published === 'boolean' ? imported.published : prev.published,
+      featured: typeof imported.featured === 'boolean' ? imported.featured : prev.featured,
+    }));
+    if (imported.slug) {
+      setSlugTouched(true);
+    }
+    setErrors({});
+    setSubmitError('');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const validation = validateBlogForm(form);
@@ -141,11 +170,6 @@ export default function BlogEditorModal({
         <div className="modal-header">
           <div>
             <h2 className="modal-title">{blog ? 'Edit Blog Post' : 'New Blog Post'}</h2>
-            <p className="modal-subtitle">
-              Published posts stream live to <code>GET /api/portfolio/blogs</code> with{' '}
-              <code>href: &quot;/blogs/{form.slug || '<slug>'}&quot;</code>,{' '}
-              <code>cover</code>, and <code>publishedAt</code>.
-            </p>
           </div>
           <button
             type="button"
@@ -159,6 +183,15 @@ export default function BlogEditorModal({
         </div>
 
         <form className="editor-form" onSubmit={handleSubmit} noValidate>
+          <FileImportDropzone
+            kind="blog"
+            accept={BLOG_IMPORT_ACCEPT}
+            formatsLabel=".md, .mdx, .js, .ts, .json"
+            parseFile={parseImportedBlogFile}
+            onApplyItem={handleApplyImportedBlog}
+            disabled={saving}
+          />
+
           <div className="editor-section">
             <h3 className="editor-section-title">Article Metadata</h3>
 
@@ -398,7 +431,7 @@ export default function BlogEditorModal({
                     checked={form.published}
                     onChange={(e) => updateField('published', e.target.checked)}
                   />
-                  <span>Publish to Portfolio API</span>
+                  <span>Published</span>
                 </label>
               </div>
 

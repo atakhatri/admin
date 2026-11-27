@@ -20,7 +20,7 @@ export default function ConsolesView({ projects, loading = false, onEditProject,
           <h2 className="section-title">Project Consoles Launchpad</h2>
           <p className="section-subtitle">
             Private one-click entrypoints to each project&apos;s Authentication, Database, Hosting,
-            and Monitoring dashboards. Never exposed on the public Portfolio API.
+            and Monitoring dashboards.
           </p>
         </div>
         <button type="button" className="btn-primary" onClick={onNewProject}>

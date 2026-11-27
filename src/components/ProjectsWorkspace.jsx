@@ -12,13 +12,13 @@ import {
   Server,
   Shield,
   Smartphone,
-  Sparkles,
   Star,
   Trash2,
 } from 'lucide-react';
 import { filterProjects, isSafeHttpUrl } from '../utils/projectHelpers';
 import { ProjectCardsSkeleton } from './ui/Skeleton';
 import LazyImage from './ui/LazyImage';
+import ExpandableFilterBar from './ui/ExpandableFilterBar';
 
 const FILTER_TABS = [
   { id: 'all', label: 'All' },
@@ -26,13 +26,12 @@ const FILTER_TABS = [
   { id: 'Mobile App', label: 'Mobile App' },
   { id: 'Complete', label: 'Complete' },
   { id: 'Demo', label: 'Demo' },
-  { id: 'published', label: 'API Live' },
+  { id: 'published', label: 'Published' },
 ];
 
 export default function ProjectsWorkspace({
   projects,
   loading,
-  seeding,
   searchQuery,
   onSearchChange,
   statusFilter,
@@ -43,7 +42,6 @@ export default function ProjectsWorkspace({
   onToggleFeatured,
   onMoveProject,
   onDeleteProject,
-  onSeedStarter,
 }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -71,28 +69,22 @@ export default function ProjectsWorkspace({
     return projects.filter((p) => p.status === tabId).length;
   };
 
+  const filterOptions = FILTER_TABS.map((tab) => ({
+    id: tab.id,
+    label: tab.label,
+    count: countForTab(tab.id),
+  }));
+
   return (
     <section className="workspace-section" aria-label="Managed projects and portfolio items">
       <div className="workspace-toolbar">
-        <div className="filter-tabs" role="tablist" aria-label="Filter projects">
-          {FILTER_TABS.map((tab) => {
-            const count = countForTab(tab.id);
-            const isActive = statusFilter === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                className={`filter-tab${isActive ? ' is-active' : ''}`}
-                onClick={() => onStatusFilterChange(tab.id)}
-              >
-                <span>{tab.label}</span>
-                <span className="tab-count">{count}</span>
-              </button>
-            );
-          })}
-        </div>
+        <ExpandableFilterBar
+          options={filterOptions}
+          value={statusFilter}
+          onChange={onStatusFilterChange}
+          label="Filters"
+          defaultId="all"
+        />
 
         {searchQuery && (
           <div className="active-search-indicator">
@@ -112,24 +104,14 @@ export default function ProjectsWorkspace({
         <ProjectCardsSkeleton count={3} />
       ) : projects.length === 0 ? (
         <div className="empty-state">
-          <h2 className="empty-title">No projects in your hub yet</h2>
+          <h2 className="empty-title">No projects yet</h2>
           <p className="empty-copy">
-            Use the + button in the top right or load starter projects to begin managing your
-            portfolio dynamically via JSON API.
+            Click the + button in the top right or add your first project to get started.
           </p>
           <div className="empty-actions">
             <button type="button" className="btn-primary" onClick={onNewProject}>
               <FolderPlus size={16} aria-hidden="true" />
               <span>Add First Project</span>
-            </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={seeding}
-              onClick={onSeedStarter}
-            >
-              <Sparkles size={16} aria-hidden="true" />
-              <span>{seeding ? 'Importing Starters...' : 'Load 3 Starter Projects'}</span>
             </button>
           </div>
         </div>
@@ -200,7 +182,7 @@ export default function ProjectsWorkspace({
                     </span>
                     <span className="meta-sep" aria-hidden="true">·</span>
                     <span className={isPublished ? 'api-live-flag' : 'api-hidden-flag'}>
-                      {isPublished ? 'API Live' : 'Hidden'}
+                      {isPublished ? 'Published' : 'Hidden'}
                     </span>
                   </div>
 
@@ -305,7 +287,7 @@ export default function ProjectsWorkspace({
                       )
                     }
                   >
-                    {isPublished ? 'Unpublish' : 'Publish to API'}
+                    {isPublished ? 'Unpublish' : 'Publish'}
                   </button>
 
                   <div className="card-foot-right">

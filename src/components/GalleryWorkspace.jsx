@@ -6,7 +6,6 @@ import {
   EyeOff,
   ImagePlus,
   Pencil,
-  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
@@ -123,11 +122,6 @@ export function GalleryPhotoModal({ open, draftConfig, nextOrder, onClose, onSav
                 ? 'Edit Gallery Image'
                 : 'Add Gallery Image'}
             </h2>
-            <p className="modal-subtitle">
-              {isGrid
-                ? 'Featured showcase slot served in gridPhotos on GET /api/portfolio/gallery.'
-                : 'Unlimited portfolio gallery item served in galleryImages on GET /api/portfolio/gallery.'}
-            </p>
           </div>
           <button
             type="button"
@@ -235,7 +229,7 @@ export function GalleryPhotoModal({ open, draftConfig, nextOrder, onClose, onSav
                       setForm((prev) => ({ ...prev, published: e.target.checked }))
                     }
                   />
-                  <span>Publish to Portfolio Gallery API</span>
+                  <span>Published</span>
                 </label>
               </div>
             </div>
@@ -266,7 +260,6 @@ export default function GalleryWorkspace({
   filledGridCount,
   galleryImages,
   loading,
-  seeding,
   searchQuery,
   onSearchChange,
   onOpenGridSlotEditor,
@@ -275,7 +268,6 @@ export default function GalleryWorkspace({
   onTogglePublish,
   onMoveGalleryImage,
   onDeletePhoto,
-  onSeedStarterGallery,
 }) {
   const [busyId, setBusyId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
@@ -291,31 +283,17 @@ export default function GalleryWorkspace({
     }
   };
 
-  const isEmptyOverall = filledGridCount === 0 && galleryImages.length === 0;
-
   return (
     <section className="workspace-section" aria-label="Portfolio photography gallery manager">
       <div className="section-heading-row">
         <div>
           <h2 className="section-title">Portfolio Photo Gallery</h2>
           <p className="section-subtitle">
-            Manage your 5 curated Grid Photos showcase slots and your unlimited Gallery Images
-            collection served dynamically via <code>GET /api/portfolio/gallery</code>.
+            Manage your 5 curated Grid Photos showcase slots and your Gallery Images collection.
           </p>
         </div>
 
         <div className="empty-actions">
-          {isEmptyOverall && !loading && (
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={seeding}
-              onClick={onSeedStarterGallery}
-            >
-              <Sparkles size={15} aria-hidden="true" />
-              <span>{seeding ? 'Loading Starters...' : 'Load Starter Photos'}</span>
-            </button>
-          )}
           <button type="button" className="btn-primary" onClick={onOpenNewGalleryImage}>
             <ImagePlus size={16} aria-hidden="true" />
             <span>Add Gallery Image</span>
@@ -368,7 +346,7 @@ export default function GalleryWorkspace({
                                 item.published ? 'api-live-flag' : 'api-hidden-flag'
                               }
                             >
-                              {item.published ? 'API Live' : 'Hidden'}
+                              {item.published ? 'Published' : 'Hidden'}
                             </span>
                           </div>
                         </div>
@@ -389,10 +367,10 @@ export default function GalleryWorkspace({
                           className="icon-btn"
                           aria-label={
                             item.published
-                              ? `Hide Grid Slot ${slot} from API`
-                              : `Publish Grid Slot ${slot} to API`
+                              ? `Hide Grid Slot ${slot}`
+                              : `Publish Grid Slot ${slot}`
                           }
-                          title={item.published ? 'Hide from API' : 'Publish to API'}
+                          title={item.published ? 'Hide photo' : 'Publish photo'}
                           disabled={isBusy}
                           onClick={() =>
                             runAction(item.id, () => onTogglePublish(item.id, !item.published))
@@ -527,7 +505,7 @@ export default function GalleryWorkspace({
                         {img.category || 'Gallery'}
                       </span>
                       <span className={img.published ? 'api-live-flag' : 'api-hidden-flag'}>
-                        {img.published ? 'API Live' : 'Hidden'}
+                        {img.published ? 'Published' : 'Hidden'}
                       </span>
                     </div>
                   </div>
@@ -572,9 +550,7 @@ export default function GalleryWorkspace({
                         <button
                           type="button"
                           className="icon-btn"
-                          aria-label={
-                            img.published ? 'Hide image from API' : 'Publish image to API'
-                          }
+                          aria-label={img.published ? 'Hide photo' : 'Publish photo'}
                           disabled={isBusy}
                           onClick={() =>
                             runAction(img.id, () => onTogglePublish(img.id, !img.published))

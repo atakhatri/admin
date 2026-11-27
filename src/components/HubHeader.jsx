@@ -83,27 +83,27 @@ export default function HubHeader({
   const notifications = [
     {
       id: 'api-projects',
-      title: `${stats.publishedProjects} of ${stats.totalProjects} projects live in Portfolio API`,
-      detail: 'GET /api/portfolio/projects',
+      title: `${stats.publishedProjects} of ${stats.totalProjects} projects published`,
+      detail: 'Visible on your portfolio',
     },
     {
       id: 'api-blogs',
-      title: `${stats.publishedBlogs || 0} of ${stats.totalBlogs || 0} blog posts live in API`,
-      detail: 'GET /api/portfolio/blogs',
+      title: `${stats.publishedBlogs || 0} of ${stats.totalBlogs || 0} blog posts published`,
+      detail: 'Visible on your blog',
     },
     {
       id: 'gallery-slots',
       title: `Gallery Grid: ${stats.filledGridCount} / ${GRID_SLOT_COUNT} slots filled`,
-      detail: `${stats.galleryImagesCount} unlimited gallery images saved`,
+      detail: `${stats.galleryImagesCount} gallery images saved`,
     },
     ...(stats.draftProjects > 0
       ? [
           {
             id: 'drafts',
-            title: `${stats.draftProjects} hidden project ${
+            title: `${stats.draftProjects} unpublished project ${
               stats.draftProjects === 1 ? 'draft' : 'drafts'
             }`,
-            detail: 'Not exposed on public API until published',
+            detail: 'Hidden until published',
           },
         ]
       : []),
@@ -279,7 +279,7 @@ export default function HubHeader({
               </button>
               <button
                 type="button"
-                className="btn-ghost-sm header-popover-btn"
+                className="btn-logout-danger header-popover-btn"
                 onClick={() => {
                   setOpenPopover(null);
                   onSignOut();
