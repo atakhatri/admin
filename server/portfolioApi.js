@@ -17,9 +17,13 @@ const SSE_HEARTBEAT_MS = 25000;
 const SSE_POLL_MS = 15000;
 
 function loadFirebaseConfig() {
-  const configPath = path.resolve(__dirname, '..', 'firebase-applet-config.json');
-  const raw = fs.readFileSync(configPath, 'utf8');
-  return JSON.parse(raw);
+  try {
+    return require('../firebase-applet-config.json');
+  } catch {
+    const configPath = path.resolve(__dirname, '..', 'firebase-applet-config.json');
+    const raw = fs.readFileSync(configPath, 'utf8');
+    return JSON.parse(raw);
+  }
 }
 
 function decodeFirestoreValue(val) {
@@ -824,9 +828,12 @@ function registerPortfolioRoutes(app, deps = {}) {
     ? deps.maxSseClients
     : MAX_SSE_CLIENTS;
 
+  const isServerless =
+    deps.isServerless !== undefined ? Boolean(deps.isServerless) : process.env.VERCEL === '1';
+
   const realtimeHub = createRealtimeHub({
     queryAllData: queryAllPublishedPortfolio,
-    pollMs,
+    pollMs: isServerless ? 0 : pollMs,
     maxClients: maxSseClients,
   });
 
@@ -850,6 +857,7 @@ function registerPortfolioRoutes(app, deps = {}) {
     res.json({
       status: 'ok',
       service: 'aurora-command-hub',
+      runtime: isServerless ? 'serverless' : 'server',
       streamClients: realtimeHub.getClientCount(),
       timestamp: new Date().toISOString(),
     });
@@ -913,6 +921,31 @@ function registerPortfolioRoutes(app, deps = {}) {
       .split(',')
       .map((c) => c.trim().toLowerCase())
       .filter((c) => ALLOWED_CHANNELS.has(c));
+
+    // On serverless hosts (e.g. Vercel), emit a fresh version snapshot and end cleanly
+    // so EventSource reconnects gently without hitting serverless execution timeouts.
+    if (isServerless) {
+      const channels = rawChannels.length > 0 ? Array.from(new Set(rawChannels)) : ['all'];
+      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('X-Accel-Buffering', 'no');
+      if (typeof res.flushHeaders === 'function') {
+        res.flushHeaders();
+      }
+      res.write('retry: 15000\n\n');
+      const version = await realtimeHub.refreshFingerprintAndBroadcast('all', false);
+      if (!req.destroyed && !res.writableEnded) {
+        realtimeHub.writeEvent(res, 'ready', {
+          source: 'aurora-command-hub',
+          version,
+          channels,
+          mode: 'serverless',
+          timestamp: new Date().toISOString(),
+        });
+        res.end();
+      }
+      return;
+    }
 
     const client = realtimeHub.addClient(res, rawChannels);
     if (!client) {

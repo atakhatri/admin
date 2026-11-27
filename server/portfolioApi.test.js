@@ -674,3 +674,75 @@ test('SSE background polling detects profile-only mutations and broadcasts chann
     await close();
   }
 });
+
+test('Serverless mode (Vercel) emits ready event with profile channel and closes cleanly without hanging', async () => {
+  const { baseUrl, close } = await startTestServer({
+    isServerless: true,
+  });
+
+  try {
+    const healthRes = await fetch(`${baseUrl}/api/health`);
+    assert.equal(healthRes.status, 200);
+    const healthJson = await healthRes.json();
+    assert.equal(healthJson.runtime, 'serverless');
+
+    const streamRes = await fetch(`${baseUrl}/api/portfolio/stream?channels=profile`, {
+      headers: { Origin: 'https://portfolio.example.com' },
+    });
+    assert.equal(streamRes.status, 200);
+    assert.equal(streamRes.headers.get('access-control-allow-origin'), '*');
+    assert.match(String(streamRes.headers.get('content-type') || ''), /text\/event-stream/i);
+
+    const text = await streamRes.text();
+    assert.match(text, /retry: 15000/);
+    assert.match(text, /event: ready/);
+
+    const dataLine = text
+      .split('\n')
+      .find((line) => line.startsWith('data:'));
+    assert.ok(dataLine);
+    const payload = JSON.parse(dataLine.slice(5).trim());
+    assert.equal(payload.source, 'aurora-command-hub');
+    assert.equal(payload.mode, 'serverless');
+    assert.deepEqual(payload.channels, ['profile']);
+    assert.equal(typeof payload.version, 'string');
+  } finally {
+    await close();
+  }
+});
+
+test('api/index.js exports a Vercel-compatible Express handler serving /api/health and JSON 404s', async () => {
+  const { default: vercelApiApp } = await import('../api/index.js');
+  assert.equal(typeof vercelApiApp, 'function');
+
+  const server = http.createServer(vercelApiApp);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    const healthRes = await fetch(`${baseUrl}/api/health`);
+    assert.equal(healthRes.status, 200);
+    const healthJson = await healthRes.json();
+    assert.equal(healthJson.status, 'ok');
+
+    const portfolioNotFound = await fetch(`${baseUrl}/api/portfolio/does-not-exist`, {
+      headers: { Origin: 'https://portfolio.example.com' },
+    });
+    assert.equal(portfolioNotFound.status, 404);
+    assert.equal(portfolioNotFound.headers.get('access-control-allow-origin'), '*');
+    assert.match(String(portfolioNotFound.headers.get('content-type') || ''), /application\/json/i);
+
+    const genericApiNotFound = await fetch(`${baseUrl}/api/unknown-endpoint`);
+    assert.equal(genericApiNotFound.status, 404);
+    assert.match(String(genericApiNotFound.headers.get('content-type') || ''), /application\/json/i);
+    const notFoundBody = await genericApiNotFound.json();
+    assert.equal(typeof notFoundBody.error, 'string');
+  } finally {
+    if (typeof server.closeAllConnections === 'function') {
+      server.closeAllConnections();
+    }
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
